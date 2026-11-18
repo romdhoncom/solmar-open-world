@@ -1,47 +1,100 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard and pointer input for Solmar. Held keys are read every frame;
+// one-shot presses (enter a car, pause, confirm) are queued as flags and
+// taken once by the loop, so a press between two frames is never lost and
+// never counted twice. The mouse position is kept in view coordinates and
+// the loop turns it into a world aim point.
 
-export const ACTION_CONFIRM = 1;
+export const ACTION_ENTER = 1;
 export const ACTION_PAUSE = 2;
+export const ACTION_CONFIRM = 4;
+export const ACTION_MUTE = 8;
+export const ACTION_RELOAD = 16;
 
+const UP = new Set(['ArrowUp', 'KeyW']);
+const DOWN = new Set(['ArrowDown', 'KeyS']);
 const LEFT = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+const RUN = new Set(['ShiftLeft', 'ShiftRight']);
+const BRAKE = new Set(['Space']);
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
+export function createInput(canvas) {
+  const keys = new Set();
   let actions = 0;
+  let mouseX = 0;
+  let mouseY = 0;
+  let mouseDown = false;
+  let clicked = false;
+
+  function codeOf(event) {
+    return event.code;
+  }
 
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
+    if (event.repeat) return;
+    keys.add(codeOf(event));
+    if (codeOf(event) === 'KeyE') actions |= ACTION_ENTER;
+    else if (codeOf(event) === 'KeyP' || codeOf(event) === 'Escape') actions |= ACTION_PAUSE;
+    else if (codeOf(event) === 'Enter') actions |= ACTION_CONFIRM;
+    else if (codeOf(event) === 'KeyM') actions |= ACTION_MUTE;
+    else if (codeOf(event) === 'KeyR') actions |= ACTION_RELOAD;
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(codeOf(event))) {
+      event.preventDefault();
+    }
   });
   window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
+    keys.delete(codeOf(event));
   });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
   window.addEventListener('blur', () => {
-    left = false;
-    right = false;
+    keys.clear();
+    mouseDown = false;
   });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
+  canvas.addEventListener('mousemove', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = event.clientX - rect.left;
+    mouseY = event.clientY - rect.top;
   });
+  canvas.addEventListener('mousedown', (event) => {
+    if (event.button === 0) {
+      mouseDown = true;
+      clicked = true;
+    }
+  });
+  window.addEventListener('mouseup', (event) => {
+    if (event.button === 0) mouseDown = false;
+  });
+  canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+
+  function hasAny(set) {
+    for (const code of set) if (keys.has(code)) return true;
+    return false;
+  }
 
   return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
+    /** -1, 0 or 1 along each axis, from the held movement keys. */
+    move() {
+      return {
+        x: (hasAny(RIGHT) ? 1 : 0) - (hasAny(LEFT) ? 1 : 0),
+        y: (hasAny(DOWN) ? 1 : 0) - (hasAny(UP) ? 1 : 0),
+      };
+    },
+    running() {
+      return hasAny(RUN);
+    },
+    braking() {
+      return hasAny(BRAKE);
+    },
+    /** The mouse position in canvas CSS pixels. */
+    mouse() {
+      return { x: mouseX, y: mouseY };
+    },
+    firing() {
+      return mouseDown;
+    },
+    /** True once after a mouse press, then cleared. */
+    takeClick() {
+      const was = clicked;
+      clicked = false;
+      return was;
     },
     /** The one-shot presses since the last call, as ACTION_* flags. */
     takeActions() {
