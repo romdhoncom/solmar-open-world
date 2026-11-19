@@ -9,6 +9,8 @@ export const ACTION_PAUSE = 2;
 export const ACTION_CONFIRM = 4;
 export const ACTION_MUTE = 8;
 export const ACTION_RELOAD = 16;
+export const ACTION_PUNCH = 32;
+export const ACTION_HORN = 64;
 
 const UP = new Set(['ArrowUp', 'KeyW']);
 const DOWN = new Set(['ArrowDown', 'KeyS']);
@@ -37,6 +39,8 @@ export function createInput(canvas) {
     else if (codeOf(event) === 'Enter') actions |= ACTION_CONFIRM;
     else if (codeOf(event) === 'KeyM') actions |= ACTION_MUTE;
     else if (codeOf(event) === 'KeyR') actions |= ACTION_RELOAD;
+    else if (codeOf(event) === 'KeyF') actions |= ACTION_PUNCH;
+    else if (codeOf(event) === 'KeyH') actions |= ACTION_HORN;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(codeOf(event))) {
       event.preventDefault();
     }

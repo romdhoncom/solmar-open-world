@@ -18,6 +18,9 @@ export const ROADS = {
 export const BEACH = { y: 2240, sand: '#e8cf9a', water: '#2e7fa8', deep: '#1d5c7d' };
 export const HARBOUR = { x: 2940, y: 1380, width: 260, height: 420 };
 
+// The plaza: a fountain square in the block between 3rd and 4th Avenues.
+export const PLAZA = { x: 1440, y: 1220 };
+
 export const STEP = 1 / 60;
 
 export const PLAYER = {
@@ -25,7 +28,9 @@ export const PLAYER = {
   walkSpeed: 230,
   runSpeed: 340,
   health: 100,
-  punchDamage: 12,
+  punchDamage: 18,
+  punchRange: 46,
+  punchInterval: 0.45,
 };
 
 export const CAR = {
@@ -39,9 +44,13 @@ export const CAR = {
   turnRate: 2.6,
   grip: 3.2,
   handbrakeGrip: 0.9,
+  // A wrecked car loses this much of its top speed at full damage.
+  damageSlow: 0.45,
 };
 
 // Car models: name, colour, top-speed multiplier, acceleration multiplier.
+// The first six are the everyday cars of Solmar; the last three are rarer
+// and only turn up in the richer districts, the marina and the hills.
 export const CAR_MODELS = [
   { name: 'Pinto', color: '#c94f3d', top: 0.82, accel: 0.9 },
   { name: 'Comet', color: '#3d7ac9', top: 1.0, accel: 1.0 },
@@ -49,14 +58,17 @@ export const CAR_MODELS = [
   { name: 'Strider', color: '#7a4fc9', top: 1.12, accel: 1.1 },
   { name: 'Marlin', color: '#2fae8a', top: 1.05, accel: 1.0 },
   { name: 'Dune Buggy', color: '#d97b2f', top: 0.95, accel: 1.05 },
+  { name: 'Falcon', color: '#e8e3d0', top: 1.18, accel: 1.12 },
+  { name: 'Hauler', color: '#5a6b3a', top: 0.78, accel: 0.85 },
+  { name: 'Sunset', color: '#f27bb1', top: 1.08, accel: 1.05 },
 ];
 
 export const POLICE_COLOR = '#20242e';
 export const POLICE_LIGHT_A = '#e33f2f';
 export const POLICE_LIGHT_B = '#2f6fe3';
 
-export const TRAFFIC_COUNT = 26;
-export const PED_COUNT = 40;
+export const TRAFFIC_COUNT = 30;
+export const PED_COUNT = 48;
 export const MAX_POLICE_CARS = 5;
 export const MAX_OFFICERS = 6;
 
@@ -66,6 +78,8 @@ export const WANTED = {
   bustSeconds: 2.5,
   finePerStar: 200,
   max: 5,
+  roadblockAt: 4,
+  heliAt: 5,
 };
 
 export const COMBAT = {
@@ -78,16 +92,49 @@ export const COMBAT = {
   enemyDamage: 9,
   enemyRange: 420,
   enemyFireInterval: 0.9,
+  bruteHealth: 170,
+  bruteDamage: 16,
+  bruteRange: 380,
+  bruteFireInterval: 1.3,
+  runnerHealth: 50,
+  runnerDamage: 6,
+  runnerRange: 340,
+  runnerFireInterval: 0.6,
 };
 
 export const MONEY = {
   start: 150,
-  missionReward: [200, 350, 600, 800, 2500],
+  // Nine story jobs, in order.
+  missionReward: [200, 350, 600, 800, 500, 700, 900, 2500, 5000],
   pickup: 25,
   hospitalLoss: 0.1,
+  fareBase: 60,
+  fareTipMax: 40,
+  packageAmount: 50,
+  packageBonus: 500,
+  packageCount: 12,
+  ammoPickup: 24,
 };
 
-export const SAVE_KEY = 'solmar.save.v1';
+// Street rank: a score from jobs, fights, thefts and finds. A new rank
+// unlocks a car and a shout from Rosa; the HUD shows the next one coming.
+export const RANKS = [
+  { score: 0, name: 'Street Rat' },
+  { score: 100, name: 'Wheelman' },
+  { score: 250, name: 'Hustler' },
+  { score: 500, name: 'Made' },
+  { score: 1000, name: 'King of Solmar' },
+];
+
+// Taxi fares: one fare at a time, a passenger to fetch, a clock to beat.
+export const TAXI = {
+  fareSeconds: 80,
+  pickupRadius: 90,
+  destRadius: 100,
+  cooldownSeconds: 18,
+};
+
+export const SAVE_KEY = 'solmar.save.v2';
 
 export const PALETTE = {
   grass: '#7fae62',

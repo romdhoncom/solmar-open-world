@@ -1,9 +1,9 @@
 // Solmar's city: the road grid, the blocks between the roads, the buildings
-// and parks that fill them, the beach and the harbour. Everything is laid out
-// once, from the seeded generator, and painted once to an offscreen canvas
-// so a frame only has to draw the moving things. Nothing here knows about
-// the player, the police or the missions.
-import { BEACH, HARBOUR, PALETTE, ROADS, WORLD } from './config.js';
+// and parks that fill them, the plaza fountain, the beach and the harbour.
+// Everything is laid out once, from the seeded generator, and painted once
+// to an offscreen canvas so a frame only has to draw the moving things.
+// Nothing here knows about the player, the police or the missions.
+import { BEACH, HARBOUR, PALETTE, PLAZA, ROADS, WORLD } from './config.js';
 import { pick, range } from './random.js';
 
 // Roof colours, one per district feel: warm terracotta downtown, pale
@@ -17,6 +17,7 @@ const ROOFS = {
 };
 
 const PARK_TREES = ['#3f7a3a', '#4a8a42', '#5a9a4a', '#357a33'];
+const UMBRELLA_COLORS = ['#e5534b', '#f2c94c', '#4f8ff7', '#58b368', '#f27bb1'];
 
 /** Which district a point belongs to, for roofs and street names. */
 export function districtAt(x, y) {
@@ -74,11 +75,12 @@ export function roadPointNear(random, x, y, minDistance) {
   return { x: ROADS.vertical[2], y: ROADS.horizontal[2] };
 }
 
-/** Build the city from the seeded generator: buildings, parks, trees. */
+/** Build the city from the seeded generator: buildings, parks, trees, plaza. */
 export function buildCity(random) {
   const buildings = [];
   const trees = [];
   const parks = [];
+  const plazas = [];
   const half = ROADS.width / 2;
   const xs = [0, ...ROADS.vertical, WORLD.width];
   const ys = [0, ...ROADS.horizontal, WORLD.height];
@@ -93,6 +95,14 @@ export function buildCity(random) {
       if (left > HARBOUR.x - 40 && top > HARBOUR.y - 40 && top < HARBOUR.y + HARBOUR.height) continue;
       const centreX = (left + right) / 2;
       const centreY = (top + bottom) / 2;
+      // The block around the plaza point is a fountain square, not buildings.
+      if (Math.abs(centreX - PLAZA.x) < 200 && Math.abs(centreY - PLAZA.y) < 200) {
+        plazas.push({ x: left, y: top, width: right - left, height: bottom - top, cx: centreX, cy: centreY });
+        for (let t = 0; t < 6; t += 1) {
+          trees.push({ x: range(random, left + 24, right - 24), y: range(random, top + 24, bottom - 24), color: pick(random, PARK_TREES), radius: 11 + random() * 7 });
+        }
+        continue;
+      }
       // One block in six is a park instead of buildings.
       if (random() < 0.16) {
         parks.push({ x: left, y: top, width: right - left, height: bottom - top });
@@ -128,7 +138,7 @@ export function buildCity(random) {
   for (let x = 120; x < WORLD.width - 60; x += 150) {
     trees.push({ x: x + range(random, -20, 20), y: BEACH.y + 26, color: pick(random, PARK_TREES), radius: 13 + random() * 6 });
   }
-  return { buildings, trees, parks };
+  return { buildings, trees, parks, plazas };
 }
 
 /** Push a circle (x, y, radius) out of every building it overlaps. */
@@ -177,6 +187,28 @@ export function paintCity(city) {
     ctx.fillRect(park.x, park.y, park.width, park.height);
   }
 
+  // The plaza: pale paving, a fountain basin and benches around it.
+  for (const plaza of city.plazas) {
+    ctx.fillStyle = '#d8cdb4';
+    ctx.fillRect(plaza.x, plaza.y, plaza.width, plaza.height);
+    ctx.fillStyle = '#8fb8c9';
+    ctx.beginPath();
+    ctx.arc(plaza.cx, plaza.cy, 42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#e8f2f5';
+    ctx.beginPath();
+    ctx.arc(plaza.cx, plaza.cy, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#8fb8c9';
+    ctx.beginPath();
+    ctx.arc(plaza.cx, plaza.cy, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#7a6a52';
+    for (const [bx, by] of [[-70, -70], [70, -70], [-70, 70], [70, 70]]) {
+      ctx.fillRect(plaza.cx + bx - 14, plaza.cy + by - 5, 28, 10);
+    }
+  }
+
   // Harbour water and the beach.
   ctx.fillStyle = PALETTE.water;
   ctx.fillRect(HARBOUR.x, HARBOUR.y, HARBOUR.width, HARBOUR.height);
@@ -189,6 +221,24 @@ export function paintCity(city) {
   // Boardwalk along the sand.
   ctx.fillStyle = '#c9a06b';
   ctx.fillRect(0, BEACH.y - 14, WORLD.width, 14);
+  // Beach umbrellas and towels: a little life on the sand.
+  for (let x = 180; x < WORLD.width - 120; x += 260) {
+    const color = UMBRELLA_COLORS[(x / 260 | 0) % UMBRELLA_COLORS.length];
+    const ux = x + 40;
+    const uy = BEACH.y + 52;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(ux, uy, 22, Math.PI, 0);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(ux, uy, 22, Math.PI, Math.PI * 1.5);
+    ctx.fill();
+    ctx.fillStyle = '#f4f1e6';
+    ctx.fillRect(ux + 30, uy + 4, 34, 14);
+    ctx.fillStyle = '#e5534b';
+    ctx.fillRect(ux + 30, uy + 4, 34, 4);
+  }
 
   // Roads: asphalt, then a pale edge, then the dashed centre line.
   ctx.fillStyle = PALETTE.road;
@@ -221,7 +271,8 @@ export function paintCity(city) {
     }
   }
 
-  // Buildings: a soft shadow, the roof, a lighter inner roof and a door.
+  // Buildings: a soft shadow, the roof, a lighter inner roof, a door, and
+  // rooftop boxes so the roofs read as more than flat colour.
   for (const b of city.buildings) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
     ctx.fillRect(b.x + 8, b.y + 10, b.width, b.height);
@@ -231,6 +282,13 @@ export function paintCity(city) {
     ctx.fillRect(b.x + 10, b.y + 10, b.width - 20, b.height - 20);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
     ctx.fillRect(b.x + b.width / 2 - 9, b.y + b.height - 6, 18, 6);
+    if (b.width > 120 && b.height > 120) {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+      ctx.fillRect(b.x + 18, b.y + 18, 22, 16);
+      ctx.fillRect(b.x + b.width - 40, b.y + b.height - 34, 22, 16);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillRect(b.x + b.width / 2 - 14, b.y + b.height / 2 - 10, 28, 20);
+    }
   }
 
   // Trees.
@@ -249,12 +307,16 @@ export function paintCity(city) {
     ctx.fill();
   }
 
-  // Harbour boats.
+  // Harbour pier and boats.
+  ctx.fillStyle = '#a8825a';
+  ctx.fillRect(HARBOUR.x - 90, HARBOUR.y + 180, 90, 16);
   ctx.fillStyle = '#f4f1e6';
   ctx.fillRect(HARBOUR.x + 40, HARBOUR.y + 60, 70, 22);
   ctx.fillRect(HARBOUR.x + 150, HARBOUR.y + 200, 60, 20);
   ctx.fillRect(HARBOUR.x + 60, HARBOUR.y + 320, 80, 24);
   ctx.fillStyle = '#c94f3d';
   ctx.fillRect(HARBOUR.x + 60, HARBOUR.y + 52, 30, 10);
+  ctx.fillStyle = '#3d7ac9';
+  ctx.fillRect(HARBOUR.x + 160, HARBOUR.y + 192, 24, 8);
   return canvas;
 }

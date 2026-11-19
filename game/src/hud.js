@@ -1,11 +1,16 @@
-// The HUD: cash, health, ammo, wanted stars, the mission objective, the
-// banner that announces a job, and the minimap — a live thumbnail of the
-// whole city with the player, the police, the traffic and the mission
-// target drawn on it. Everything is painted on the canvas, in view space.
-import { FONT, FONT_DISPLAY, PALETTE, VIEW, WORLD } from './config.js';
+// The HUD: cash, health, ammo, wanted stars, street rank, the mission
+// objective, the banner that announces a job, and the minimap — a live
+// thumbnail of the whole city with the player, the police, the fare, the
+// hidden packages and the mission target drawn on it. Everything is painted
+// on the canvas, in view space, and every element stays inside the frame:
+// the speedometer lives in the top-left panel and the minimap label inside
+// the minimap panel, never below the picture.
+import { FONT, FONT_DISPLAY, PALETTE, RANKS, VIEW, WORLD } from './config.js';
 import { objectiveText } from './missions.js';
 import { playerCar } from './player.js';
 import { speedFraction } from './vehicles.js';
+import { fareObjective } from './sidejobs.js';
+import { rankFor } from './rank.js';
 
 const MINIMAP = { size: 190, margin: 14 };
 
@@ -44,10 +49,13 @@ function star(ctx, cx, cy, radius, color) {
 export function drawMinimap(ctx, game) {
   const size = MINIMAP.size;
   const x0 = VIEW.width - size - MINIMAP.margin;
-  const y0 = VIEW.height - size - MINIMAP.margin;
+  const y0 = 76;
   const scale = size / WORLD.width;
   const height = WORLD.height * scale;
   panel(ctx, x0 - 4, y0 - 4, size + 8, height + 8);
+  // The label lives inside the panel, at the top, so it can never fall
+  // below the frame.
+  text(ctx, 'SOLMAR', x0 + 4, y0 + 14, 11, PALETTE.muted, 'left', true);
   ctx.save();
   ctx.beginPath();
   ctx.rect(x0, y0, size, height);
@@ -73,12 +81,33 @@ export function drawMinimap(ctx, game) {
     ctx.closePath();
     ctx.fill();
   }
+  // Taxi fare: a blue diamond at the pickup or the drop-off.
+  const fare = game.sidejobs.fare;
+  if (fare) {
+    const point = fare.stage === 0 ? fare.pickup : fare.dest;
+    const fx = x0 + point.x * scale;
+    const fy = y0 + point.y * scale;
+    ctx.fillStyle = PALETTE.blue;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy - 5);
+    ctx.lineTo(fx + 5, fy);
+    ctx.lineTo(fx, fy + 5);
+    ctx.lineTo(fx - 5, fy);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Hidden packages: small gold dots.
+  for (const pack of game.sidejobs.packages) {
+    if (!pack.taken) blip(pack.x, pack.y, PALETTE.gold, 3);
+  }
+  for (const enemy of game.enemies) blip(enemy.x, enemy.y, '#ff7a3c', 3);
   for (const car of game.cars) {
     if (car.dead) continue;
     if (car.kind === 'police') blip(car.x, car.y, '#e33f2f', 3);
     else if (car.kind === 'player') blip(car.x, car.y, '#ffffff', 3);
   }
-  for (const enemy of game.enemies) blip(enemy.x, enemy.y, '#ff7a3c', 3);
+  // The helicopter at five stars: a red blip that never leaves the map.
+  if (game.heli) blip(game.heli.x, game.heli.y, '#e33f2f', 4);
   // The player: a white arrow that turns with them.
   const player = game.player;
   const px = x0 + player.x * scale;
@@ -95,14 +124,14 @@ export function drawMinimap(ctx, game) {
   ctx.fill();
   ctx.restore();
   ctx.restore();
-  text(ctx, 'SOLMAR', x0, y0 + height + 18, 12, PALETTE.muted, 'left', true);
 }
 
 /** Draw the whole HUD over the world view. */
 export function drawHud(ctx, game) {
   const player = game.player;
-  // Top-left: cash, health, ammo.
-  panel(ctx, 14, 14, 250, 96);
+  const car = playerCar(game);
+  // Top-left: cash, health, ammo or car, speed, packages and fares.
+  panel(ctx, 14, 14, 250, 132);
   text(ctx, '$' + Math.floor(player.money), 26, 46, 30, PALETTE.gold, 'left', true);
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.fillRect(26, 56, 226, 12);
@@ -112,24 +141,55 @@ export function drawHud(ctx, game) {
   if (!player.inCar) {
     text(ctx, 'AMMO ' + player.ammo + ' / ' + player.reserveAmmo, 150, 88, 13, PALETTE.text, 'left', true);
   } else {
-    const car = playerCar(game);
     text(ctx, car ? car.model.toUpperCase() : '', 150, 88, 13, PALETTE.text, 'left', true);
   }
+  // Speedometer inside the panel, so it can never clip the frame's edge.
+  if (player.inCar && car) {
+    const mph = Math.round(Math.abs(car.speed) * 0.12);
+    text(ctx, mph + ' mph', 26, 112, 20, PALETTE.text, 'left', true);
+    const frac = speedFraction(car);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(110, 102, 142, 8);
+    ctx.fillStyle = car.damage > 0.5 ? PALETTE.red : PALETTE.blue;
+    ctx.fillRect(110, 102, 142 * frac, 8);
+    if (car.damage > 0.05) {
+      text(ctx, 'DAMAGE ' + Math.round(car.damage * 100) + '%', 26, 134, 12, PALETTE.red, 'left', true);
+    }
+  } else {
+    text(ctx, `PACKAGES ${game.sidejobs.packagesFound}/12 · FARES ${game.sidejobs.faresDone}`, 26, 112, 12, PALETTE.muted, 'left');
+    text(ctx, 'Garage repairs your car', 26, 134, 12, PALETTE.muted, 'left');
+  }
 
-  // Top-right: wanted stars.
+  // Top-right: wanted stars, then street rank and its progress.
   const wanted = game.crime.wanted;
-  panel(ctx, VIEW.width - 14 - 190, 14, 190, 44);
+  panel(ctx, VIEW.width - 14 - 190, 14, 190, 56);
   for (let i = 0; i < 5; i += 1) {
     star(ctx, VIEW.width - 14 - 190 + 26 + i * 34, 37, 12, i < wanted ? PALETTE.gold : 'rgba(255,255,255,0.16)');
   }
+  const rank = rankFor(game);
+  const rankName = RANKS[rank.index].name;
+  if (rank.next) {
+    text(ctx, `${rankName} → ${rank.next}`, VIEW.width - 24, 62, 12, PALETTE.text, 'right', true);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(VIEW.width - 14 - 190 + 10, 66, 170, 4);
+    ctx.fillStyle = PALETTE.gold;
+    ctx.fillRect(VIEW.width - 14 - 190 + 10, 66, 170 * rank.progress, 4);
+  } else {
+    text(ctx, rankName, VIEW.width - 24, 62, 12, PALETTE.gold, 'right', true);
+  }
 
-  // Top-centre: the mission objective.
-  const objective = objectiveText(game);
-  const width = Math.min(640, ctx.measureText(objective).width + 40);
+  // Top-centre: the mission objective, or the fare while one is running.
+  const objective = game.missions.active ? objectiveText(game) : game.sidejobs.fare ? fareObjective(game) : 'Press Enter to start the next job.';
   ctx.font = 'bold 15px ' + FONT;
   const measured = ctx.measureText(objective).width;
   panel(ctx, (VIEW.width - measured - 44) / 2, 14, measured + 44, 40);
   text(ctx, objective, VIEW.width / 2, 40, 15, PALETTE.text, 'center', true);
+
+  // Timed missions count down in big numbers under the objective.
+  if (game.missions.active && game.missions.timeLeft > 0) {
+    const seconds = Math.ceil(game.missions.timeLeft);
+    text(ctx, seconds + 's', VIEW.width / 2, 84, 30, seconds < 15 ? PALETTE.red : PALETTE.gold, 'center', true);
+  }
 
   // Banner: mission starts and payouts.
   if (game.missions.bannerTimer > 0) {
@@ -143,26 +203,14 @@ export function drawHud(ctx, game) {
 
   // Crime message under the objective.
   if (game.crime.messageTimer > 0) {
-    text(ctx, game.crime.message, VIEW.width / 2, 84, 16, PALETTE.red, 'center', true);
+    text(ctx, game.crime.message, VIEW.width / 2, game.missions.timeLeft > 0 ? 108 : 84, 16, PALETTE.red, 'center', true);
   }
 
   // Bottom-left: what to press.
   const hint = player.inCar
-    ? 'W/S drive · A/D steer · Space handbrake · E get out · P pause · M mute'
-    : 'WASD move · Shift run · Mouse aim · Click shoot · R reload · E enter car · P pause';
+    ? 'W/S drive · A/D steer · Space handbrake · H horn · E get out · P pause · M mute'
+    : 'WASD move · Shift run · Mouse aim · Click shoot · F punch · R reload · E enter car · P pause';
   text(ctx, hint, 16, VIEW.height - 16, 13, PALETTE.muted, 'left');
-
-  // Speedometer while driving.
-  if (player.inCar) {
-    const car = playerCar(game);
-    const mph = car ? Math.round(Math.abs(car.speed) * 0.12) : 0;
-    text(ctx, mph + ' mph', VIEW.width - MINIMAP.size - 30, VIEW.height - 16, 22, PALETTE.text, 'right', true);
-    const frac = car ? speedFraction(car) : 0;
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(VIEW.width - MINIMAP.size - 30 - 140, VIEW.height - 34, 140, 8);
-    ctx.fillStyle = PALETTE.blue;
-    ctx.fillRect(VIEW.width - MINIMAP.size - 30 - 140, VIEW.height - 34, 140 * frac, 8);
-  }
 
   // Crosshair while on foot.
   if (!player.inCar) {

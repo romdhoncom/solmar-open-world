@@ -1,6 +1,6 @@
-// Dani Vega, on foot: walking and running, aiming with the mouse, and
-// getting in and out of cars. The player is a circle with a facing angle;
-// the car they drive is a separate entity the game keeps in sync.
+// Dani Vega, on foot: walking and running, aiming with the mouse, punching
+// up close, and getting in and out of cars. The player is a circle with a
+// facing angle; the car they drive is a separate entity the game keeps in sync.
 import { CAR, PLAYER, WORLD } from './config.js';
 import { collideBuildings } from './world.js';
 import { tailPoint } from './vehicles.js';
@@ -21,6 +21,7 @@ export function makePlayer() {
     fireTimer: 0,
     reloadTimer: 0,
     bustTimer: 0,
+    punchTimer: 0,
   };
 }
 
@@ -50,6 +51,7 @@ export function stepPlayerOnFoot(game, dt, move, run, aimAngle) {
   if (length === 0) player.angle = aimAngle;
   if (player.invulnerable > 0) player.invulnerable = Math.max(0, player.invulnerable - dt);
   if (player.fireTimer > 0) player.fireTimer -= dt;
+  if (player.punchTimer > 0) player.punchTimer -= dt;
   if (player.reloadTimer > 0) {
     player.reloadTimer -= dt;
     if (player.reloadTimer <= 0) {
@@ -59,7 +61,62 @@ export function stepPlayerOnFoot(game, dt, move, run, aimAngle) {
       player.reserveAmmo -= take;
     }
   }
+  // Running kicks up a little dust off the sidewalk.
+  if (run && length > 0 && game.random() < dt * 8) {
+    game.particles.push({
+      x: player.x - Math.cos(player.angle) * 12,
+      y: player.y - Math.sin(player.angle) * 12,
+      vx: 0, vy: 0, life: 0.3, max: 0.3, color: '#c9c4b2', size: 4,
+    });
+  }
   return length > 0 ? speed * dt : 0;
+}
+
+/**
+ * Throw a punch at whatever stands in front of Dani: a Breaker, an officer,
+ * or a pedestrian who got too close. No ammo, short reach, quick to throw.
+ * Returns the thing that was hit, or null.
+ */
+export function playerPunch(game) {
+  const player = game.player;
+  if (player.inCar || player.punchTimer > 0) return null;
+  player.punchTimer = PLAYER.punchInterval;
+  player.angle = Math.atan2(game.aimWorld.y - player.y, game.aimWorld.x - player.x);
+  const reach = PLAYER.punchRange;
+  const fx = Math.cos(player.angle);
+  const fy = Math.sin(player.angle);
+  const inFront = (x, y, radius) => {
+    const dx = x - player.x;
+    const dy = y - player.y;
+    const forward = dx * fx + dy * fy;
+    const side = Math.abs(-dx * fy + dy * fx);
+    return forward > 0 && forward < reach + radius && side < radius + 10;
+  };
+  for (const enemy of game.enemies) {
+    if (enemy.dead) continue;
+    if (inFront(enemy.x, enemy.y, 14)) {
+      enemy.health -= PLAYER.punchDamage;
+      enemy.flash = 0.15;
+      game.audio.punch();
+      if (enemy.health <= 0) {
+        enemy.dead = true;
+        game.stats.kills += 1;
+      }
+      return enemy;
+    }
+  }
+  for (const officer of game.officers) {
+    if (inFront(officer.x, officer.y, 14)) {
+      officer.gone = true;
+      game.crime.wanted = Math.min(5, game.crime.wanted + 1);
+      game.crime.message = 'You punched a cop — wanted level ' + game.crime.wanted;
+      game.crime.messageTimer = 4;
+      game.audio.punch();
+      return officer;
+    }
+  }
+  game.audio.punch();
+  return null;
 }
 
 /** The nearest car the player can step into, within reach, or null. */

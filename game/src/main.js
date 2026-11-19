@@ -1,16 +1,19 @@
 // Boot and the one loop: input is read every frame, the game advances in
 // fixed 1/60 s steps (several in a slow frame, none in a fast one), and the
-// renderer paints what is there. The game moves between five screens:
-// title, play, paused, busted and wasted. Busted and wasted are brief
-// stops: the police or the hospital take their cut, then play resumes.
+// renderer paints what is there. The game moves between six screens:
+// title, play, paused, busted, wasted and complete. Busted and wasted are
+// brief stops: the police or the hospital take their cut, then play
+// resumes. Complete appears once, when the ninth job is done — and then
+// free roam carries on.
 //
 // ?seed=N fixes the city and the traffic. ?shot=start|drive|chase|mission
 // (with &seed=N) stages that scene instead of running the loop, paints it
 // twice and sets window.__shotReady for a screenshot.
 import { STEP } from './config.js';
 import { createGame, loadSave, saveGame, stepGame } from './game.js';
+import { MISSION_COUNT } from './missions.js';
 import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_BUSTED, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
+import { createRenderer, SCREEN_BUSTED, SCREEN_COMPLETE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
 import { stageShot } from './shots.js';
 
 const MAX_FRAME = 0.25;
@@ -25,6 +28,8 @@ const status = document.getElementById('status');
 const saved = loadSave();
 const game = createGame(seed, null);
 game.hasSave = !!saved;
+// A debug handle for playtests: window.__solmar is the live game state.
+window.__solmar = game;
 const renderer = createRenderer(canvas);
 
 function announce(message) {
@@ -102,6 +107,13 @@ function runGame() {
           if (event.type === 'busted') screen = SCREEN_BUSTED;
           if (event.type === 'wasted') screen = SCREEN_WASTED;
         }
+        // All nine jobs done: celebrate once, then free roam carries on.
+        if (screen === SCREEN_PLAY && game.missions.done >= MISSION_COUNT && !game.missions.active && !game.celebrated) {
+          game.celebrated = true;
+          saveGame(game);
+          screen = SCREEN_COMPLETE;
+          announce('King of Solmar. The city is yours.');
+        }
         if (screen !== SCREEN_PLAY) break;
       }
     } else if (screen === SCREEN_PAUSED) {
@@ -113,6 +125,10 @@ function runGame() {
         announce('Playing.');
       }
     } else if (screen === SCREEN_BUSTED || screen === SCREEN_WASTED) {
+      accumulator = 0;
+      const actions = input.takeActions();
+      if ((actions & ACTION_CONFIRM) || input.takeClick()) backToStreet();
+    } else if (screen === SCREEN_COMPLETE) {
       accumulator = 0;
       const actions = input.takeActions();
       if ((actions & ACTION_CONFIRM) || input.takeClick()) backToStreet();

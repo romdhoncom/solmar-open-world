@@ -1,18 +1,21 @@
 // Solmar's simulation: one game state and one step. createGame builds the
 // city, the streets and Dani; stepGame advances everything by one fixed
 // step — the player or their car, the traffic, the police, the combat, the
-// missions and the wanted level — and reports what happened as events the
-// loop reacts to (busted, wasted, mission started). Nothing here draws.
+// missions, the side jobs and the wanted level — and reports what happened
+// as events the loop reacts to (busted, wasted, mission started). Nothing
+// here draws.
 import { CAR, COMBAT, MONEY, STEP, WORLD } from './config.js';
 import { createRandom } from './random.js';
 import { buildCity, collideBuildings, hitsBuilding, paintCity } from './world.js';
 import { createAudio } from './audio.js';
 import { makeCrime, applyBusted, applyWasted, coolWanted, stepPolice } from './police.js';
-import { makePlayer, stepPlayerOnFoot, nearestCarToEnter, enterCar, exitCar, playerCar } from './player.js';
-import { makeCar, resetCarIds, scatterParkedCars, stepCar } from './vehicles.js';
+import { makePlayer, stepPlayerOnFoot, nearestCarToEnter, enterCar, exitCar, playerCar, playerPunch } from './player.js';
+import { makeCar, resetCarIds, scatterParkedCars, stepCar, damageCar, repairCar } from './vehicles.js';
 import { populateStreets, scatterPeds, stepTraffic } from './traffic.js';
 import { playerShoot, stepCombat } from './combat.js';
-import { makeMissions, objectiveText, startMission, stepMissions } from './missions.js';
+import { MISSION_COUNT, GARAGE, makeMissions, objectiveText, startMission, stepMissions } from './missions.js';
+import { makeSideJobs, stepSideJobs } from './sidejobs.js';
+import { stepRank } from './rank.js';
 import { readSave, writeSave } from './save.js';
 
 export const EVENT_NONE = 0;
@@ -32,20 +35,29 @@ export function createGame(seed, saved) {
     player: makePlayer(),
     crime: makeCrime(),
     missions: makeMissions(),
+    sidejobs: null,
+    rank: { index: 0 },
     cars: [],
     peds: [],
     officers: [],
     enemies: [],
     bullets: [],
     particles: [],
+    skids: [],
     pickups: [],
     camera: { x: 1200, y: 1080 },
     aimWorld: { x: 1200, y: 1000 },
     aimScreen: { x: 640, y: 300 },
     events: [],
-    stats: { carsStolen: 0, kills: 0, missionsDone: 0 },
+    stats: { carsStolen: 0, kills: 0, missionsDone: 0, faresDone: 0 },
+    shake: 0,
+    heli: null,
+    sunsetSpawned: false,
+    celebrated: false,
+    lastSavedMissions: 0,
     hasSave: !!saved,
   };
+  game.sidejobs = makeSideJobs(game);
   populateStreets(game);
   // Parked cars along the roads, and a starter Comet outside the garage.
   const parked = scatterParkedCars(random, city);
@@ -72,6 +84,11 @@ export function createGame(seed, saved) {
     game.missions.done = saved.missionsDone;
     game.stats.carsStolen = saved.carsStolen || 0;
     game.stats.missionsDone = saved.missionsDone;
+    game.stats.kills = saved.kills || 0;
+    game.sidejobs.packagesFound = saved.packagesFound || 0;
+    game.sidejobs.faresDone = saved.faresDone || 0;
+    game.stats.faresDone = saved.faresDone || 0;
+    game.lastSavedMissions = saved.missionsDone;
     game.camera.x = saved.playerX;
     game.camera.y = saved.playerY;
   }
@@ -119,7 +136,7 @@ export function stepGame(game, input, view, dt) {
   game.aimWorld = { x: vx + viewX, y: vy + viewY };
 
   // Enter starts the next job when none is running.
-  if (!game.missions.active && game.missions.done < 5 && (actions & 4)) {
+  if (!game.missions.active && game.missions.done < MISSION_COUNT && (actions & 4)) {
     startMission(game, game.missions.done);
   }
 
@@ -133,11 +150,38 @@ export function stepGame(game, input, view, dt) {
     player.x = car.x;
     player.y = car.y;
     player.angle = car.angle;
-    // Hitting a building or a car at speed costs speed and sparks.
+    // Handbrake at speed: skid marks, smoke and a screech.
+    if (input.braking() && Math.abs(car.speed) > 200) {
+      game.skids.push({ x: car.x, y: car.y, angle: car.angle, life: 2.2, max: 2.2 });
+      if (game.random() < dt * 20) {
+        game.particles.push({
+          x: car.x - Math.cos(car.angle) * 30, y: car.y - Math.sin(car.angle) * 30,
+          vx: 0, vy: -20, life: 0.4, max: 0.4, color: '#9a9a9a', size: 7,
+        });
+      }
+      game.audio.skid(dt, true);
+    } else {
+      game.audio.skid(dt, false);
+    }
+    // The horn: a honk, and the pedestrians nearby get out of the way.
+    if (actions & 64) {
+      game.audio.honk();
+      scatterPeds(game, car.x, car.y, 200);
+    }
+    // Hitting a building at speed costs speed, dents the car and sparks.
     if (hitsBuilding(game.city, car.x, car.y, CAR.length / 2)) {
+      const hard = Math.abs(car.speed) > 200;
       car.speed *= 0.6;
       car.x -= Math.cos(car.angle) * 12;
       car.y -= Math.sin(car.angle) * 12;
+      if (hard) {
+        damageCar(car, 0.09);
+        game.shake = Math.max(game.shake, 6);
+        for (let i = 0; i < 6; i += 1) {
+          const a = game.random() * Math.PI * 2;
+          game.particles.push({ x: car.x, y: car.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.25, max: 0.25, color: '#ffd76b', size: 4 });
+        }
+      }
       if (Math.abs(car.speed) > 200 && game.random() < dt * 6) game.audio.crash();
     }
     for (const other of game.cars) {
@@ -153,7 +197,12 @@ export function stepGame(game, input, view, dt) {
         other.y -= ny * push;
         car.speed *= 0.85;
         other.speed *= 0.85;
-        if (Math.abs(car.speed) > 150) game.audio.crash();
+        if (Math.abs(car.speed) > 150) {
+          damageCar(car, 0.04);
+          damageCar(other, 0.04);
+          game.shake = Math.max(game.shake, 4);
+          game.audio.crash();
+        }
       }
     }
     // Running over a pedestrian is a crime the whole street sees.
@@ -167,6 +216,10 @@ export function stepGame(game, input, view, dt) {
         game.crime.messageTimer = 4;
         scatterPeds(game, ped.x, ped.y, 300);
       }
+    }
+    // Marlowe Motors fixes the car while it sits by the garage.
+    if (Math.hypot(car.x - GARAGE.x, car.y - GARAGE.y) < 140 && Math.abs(car.speed) < 10) {
+      repairCar(car, 0.12 * dt);
     }
     if (actions & 1) exitCar(game);
   } else {
@@ -183,6 +236,7 @@ export function stepGame(game, input, view, dt) {
         }
       }
     }
+    if (actions & 32) playerPunch(game);
     if (actions & 16) {
       if (player.ammo < 12 && player.reserveAmmo > 0 && player.reloadTimer <= 0) {
         player.reloadTimer = COMBAT.reloadSeconds;
@@ -194,12 +248,17 @@ export function stepGame(game, input, view, dt) {
     }
   }
 
-  // Pickups: walk or drive over cash to collect it.
+  // Pickups: walk or drive over cash or ammo to collect it.
   for (const pickup of game.pickups) {
     if (Math.hypot(pickup.x - player.x, pickup.y - player.y) < 34) {
       pickup.taken = true;
-      player.money += pickup.amount;
-      game.audio.cash();
+      if (pickup.kind === 'ammo') {
+        player.reserveAmmo += pickup.amount;
+        game.audio.pickup();
+      } else {
+        player.money += pickup.amount;
+        game.audio.cash();
+      }
     }
     pickup.life -= dt;
   }
@@ -219,6 +278,19 @@ export function stepGame(game, input, view, dt) {
   coolWanted(game, dt);
   stepCombat(game, dt);
   stepMissions(game, dt);
+  stepSideJobs(game, dt);
+  stepRank(game);
+
+  // Save whenever a story job is finished.
+  if (game.missions.done > game.lastSavedMissions) {
+    game.lastSavedMissions = game.missions.done;
+    saveGame(game);
+  }
+
+  // Skid marks fade, and the camera shake settles.
+  for (const skid of game.skids) skid.life -= dt;
+  game.skids = game.skids.filter((s) => s.life > 0);
+  if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 22);
 
   // The camera eases toward the player, looking a little ahead when driving.
   const lookX = car ? Math.cos(car.angle) * 90 : 0;

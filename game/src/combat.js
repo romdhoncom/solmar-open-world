@@ -1,8 +1,10 @@
 // Combat: Dani's pistol, the bullets it fires, and the Breakers — the rival
-// crew who show up in the beachfront mission. Bullets fly straight and die
-// on buildings, cars and people; enemies stand their ground, shoot back,
-// and drop cash when they fall.
-import { COMBAT, PLAYER } from './config.js';
+// crew who show up in the beachfront mission and the finale. Bullets fly
+// straight and die on buildings, cars and people; enemies stand their
+// ground, shoot back, and drop cash or ammo when they fall. Three kinds
+// fight: Breakers with pistols, brutes who hit hard and take a beating,
+// and runners who close in fast and fire in bursts.
+import { COMBAT, MONEY, PLAYER } from './config.js';
 import { hitsBuilding } from './world.js';
 import { hurtPlayer } from './player.js';
 
@@ -36,12 +38,23 @@ export function playerShoot(game, targetX, targetY) {
   return true;
 }
 
-/** Spawn a Breaker at (x, y) who will fight Dani. */
-export function spawnEnemy(game, x, y) {
+/** Spawn an enemy at (x, y) who will fight Dani. `kind` is breaker, brute or runner. */
+export function spawnEnemy(game, x, y, kind) {
+  const type = kind || 'breaker';
+  const stats = {
+    breaker: { health: COMBAT.enemyHealth, damage: COMBAT.enemyDamage, range: COMBAT.enemyRange, interval: COMBAT.enemyFireInterval, speed: 55 },
+    brute: { health: COMBAT.bruteHealth, damage: COMBAT.bruteDamage, range: COMBAT.bruteRange, interval: COMBAT.bruteFireInterval, speed: 38 },
+    runner: { health: COMBAT.runnerHealth, damage: COMBAT.runnerDamage, range: COMBAT.runnerRange, interval: COMBAT.runnerFireInterval, speed: 120 },
+  }[type];
   game.enemies.push({
     x, y,
     angle: 0,
-    health: COMBAT.enemyHealth,
+    kind: type,
+    health: stats.health,
+    damage: stats.damage,
+    range: stats.range,
+    fireInterval: stats.interval,
+    moveSpeed: stats.speed,
     fireTimer: 0.5 + game.random() * 0.8,
     dead: false,
     flash: 0,
@@ -56,19 +69,32 @@ function stepEnemy(game, enemy, dt) {
   const distance = Math.hypot(dx, dy);
   enemy.angle = Math.atan2(dy, dx);
   if (enemy.flash > 0) enemy.flash -= dt;
-  if (distance > 60 && distance < COMBAT.enemyRange * 1.4) {
+  if (distance > 60 && distance < enemy.range * 1.4) {
     const approach = distance > 220 ? 1 : distance < 140 ? -0.4 : 0;
-    enemy.x += Math.cos(enemy.angle) * 55 * approach * dt;
-    enemy.y += Math.sin(enemy.angle) * 55 * approach * dt;
+    enemy.x += Math.cos(enemy.angle) * enemy.moveSpeed * approach * dt;
+    enemy.y += Math.sin(enemy.angle) * enemy.moveSpeed * approach * dt;
   }
   enemy.x = Math.max(30, Math.min(3170, enemy.x));
   enemy.y = Math.max(30, Math.min(2370, enemy.y));
   enemy.fireTimer -= dt;
-  if (enemy.fireTimer <= 0 && distance < COMBAT.enemyRange && !player.inCar) {
-    enemy.fireTimer = COMBAT.enemyFireInterval;
+  if (enemy.fireTimer <= 0 && distance < enemy.range && !player.inCar) {
+    enemy.fireTimer = enemy.fireInterval;
     const jitter = (game.random() - 0.5) * 0.16;
     game.bullets.push(makeBullet(enemy.x, enemy.y, enemy.angle + jitter, false));
     game.audio.enemyShot();
+  }
+}
+
+/** A small burst of sparks where a bullet died on a wall. */
+function impactSparks(game, x, y) {
+  for (let i = 0; i < 5; i += 1) {
+    const a = game.random() * Math.PI * 2;
+    const speed = 60 + game.random() * 140;
+    game.particles.push({
+      x, y,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      life: 0.2, max: 0.2, color: '#ffd76b', size: 3,
+    });
   }
 }
 
@@ -81,6 +107,7 @@ export function stepCombat(game, dt) {
     bullet.y += Math.sin(bullet.angle) * bullet.speed * dt;
     bullet.life -= dt;
     if (bullet.life <= 0 || hitsBuilding(game.city, bullet.x, bullet.y, 2)) {
+      if (hitsBuilding(game.city, bullet.x, bullet.y, 2)) impactSparks(game, bullet.x, bullet.y);
       bullet.dead = true;
       continue;
     }
@@ -95,7 +122,13 @@ export function stepCombat(game, dt) {
           if (enemy.health <= 0) {
             enemy.dead = true;
             game.stats.kills += 1;
-            game.pickups.push({ x: enemy.x, y: enemy.y, kind: 'cash', amount: 40 + Math.floor(game.random() * 40), life: 30 });
+            const dropAmmo = game.random() < 0.4;
+            game.pickups.push({
+              x: enemy.x, y: enemy.y,
+              kind: dropAmmo ? 'ammo' : 'cash',
+              amount: dropAmmo ? MONEY.ammoPickup : 40 + Math.floor(game.random() * 40),
+              life: 30,
+            });
           }
           break;
         }
@@ -114,7 +147,8 @@ export function stepCombat(game, dt) {
     } else {
       if (Math.hypot(player.x - bullet.x, player.y - bullet.y) < PLAYER.radius + 4) {
         bullet.dead = true;
-        if (hurtPlayer(game, COMBAT.enemyDamage)) game.events.push({ type: 'wasted', timer: 2 });
+        const damage = nearestEnemyDamage(game, bullet);
+        if (hurtPlayer(game, damage)) game.events.push({ type: 'wasted', timer: 2 });
       }
     }
   }
@@ -129,6 +163,17 @@ export function stepCombat(game, dt) {
     particle.y += particle.vy * dt;
   }
   game.particles = game.particles.filter((p) => p.life > 0);
+}
+
+/** The damage of the enemy whose bullet this is, by kind. */
+function nearestEnemyDamage(game, bullet) {
+  let best = null;
+  let bestD = Infinity;
+  for (const enemy of game.enemies) {
+    const d = Math.hypot(enemy.x - bullet.x, enemy.y - bullet.y);
+    if (d < bestD) { bestD = d; best = enemy; }
+  }
+  return best ? best.damage : COMBAT.enemyDamage;
 }
 
 /** A muzzle-flash particle at the player's gun, for the renderer. */

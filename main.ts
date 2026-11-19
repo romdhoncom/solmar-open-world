@@ -7,7 +7,8 @@
 // make.fun library. Solmar is a 2D top-down open-world crime game: Dani
 // Vega explores a sun-soaked coastal city on foot and by car, steals cars,
 // outruns the police under a five-star wanted level, fights the Breakers,
-// and runs five story missions, with a HUD, a minimap and a save.
+// and runs nine story missions — plus taxi fares, hidden packages and a
+// street rank that unlocks cars — with a HUD, a minimap and a save.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

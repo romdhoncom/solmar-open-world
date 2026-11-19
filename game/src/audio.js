@@ -1,6 +1,7 @@
 // Solmar's sound: everything is synthesized with WebAudio, no audio files.
 // A low engine hum that follows the car's speed, a two-tone police siren, a
-// noise-burst gunshot, chimes for pickups and missions, and a small looping
+// noise-burst gunshot, a punch thump, a horn, a tyre screech for the
+// handbrake, chimes for pickups, fares and rank-ups, and a small looping
 // bass-and-lead groove for the drive. Nothing starts until the player first
 // interacts, and M mutes it all.
 
@@ -16,6 +17,7 @@ export function createAudio() {
   let muted = false;
   let musicStep = 0;
   let musicTimer = 0;
+  let skidTimer = 0;
   let started = false;
 
   // A minor-key bass line and a sparse lead, one step every 0.22 s.
@@ -131,6 +133,41 @@ export function createAudio() {
     },
     crash() {
       noise(0.25, 0.4, 700);
+    },
+    /** A short low thump for a punch. */
+    punch() {
+      tone(120, 0.08, 'square', 0.25, 0);
+      noise(0.06, 0.2, 500);
+    },
+    /** The car's horn: two notes, held briefly. */
+    honk() {
+      tone(370, 0.18, 'square', 0.12, 0);
+      tone(466, 0.18, 'square', 0.12, 0);
+    },
+    /** Tyre screech while the handbrake is held at speed. */
+    skid(dt, active) {
+      if (!context || muted) return;
+      if (!active) {
+        skidTimer = 0;
+        return;
+      }
+      skidTimer -= dt;
+      if (skidTimer <= 0) {
+        skidTimer = 0.12;
+        noise(0.1, 0.12, 900);
+      }
+    },
+    /** A fare is on the meter. */
+    fare() {
+      tone(784, 0.1, 'triangle', 0.2, 0);
+      tone(988, 0.14, 'triangle', 0.18, 0.08);
+    },
+    /** A new street rank: a rising arpeggio. */
+    rankUp() {
+      tone(523, 0.12, 'triangle', 0.22, 0);
+      tone(659, 0.12, 'triangle', 0.22, 0.1);
+      tone(784, 0.12, 'triangle', 0.22, 0.2);
+      tone(1046, 0.28, 'triangle', 0.22, 0.3);
     },
     pickup() {
       tone(880, 0.12, 'sine', 0.22, 0);

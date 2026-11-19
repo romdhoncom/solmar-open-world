@@ -1,8 +1,9 @@
-// Solmar's streets, alive: traffic cars that drive the road grid and
-// pedestrians who stroll the sidewalks. Traffic cars pick a road, drive
-// along it, and turn at intersections; pedestrians walk beside a road and
-// turn at its ends. Neither knows about the player — they only slow down
-// for the car ahead of them and scatter when a gun goes off.
+// Solmar's streets, alive: traffic cars that drive the road grid, yellow
+// taxis that work the same roads, and pedestrians who stroll the sidewalks.
+// Traffic cars pick a road, drive along it, and turn at intersections;
+// pedestrians walk beside a road and turn at its ends. Neither knows about
+// the player — they only slow down for the car ahead of them and scatter
+// when a gun goes off.
 import { CAR, PED_COUNT, ROADS, TRAFFIC_COUNT, WORLD } from './config.js';
 import { pick, range } from './random.js';
 import { makeCar, stepCar } from './vehicles.js';
@@ -20,6 +21,15 @@ function spawnTrafficCar(game) {
   car.wasTraffic = true;
   car.speed = range(random, 120, 200);
   car.cruise = car.speed;
+  return car;
+}
+
+/** A yellow taxi, working the same roads as the traffic around it. */
+function spawnTaxi(game) {
+  const car = spawnTrafficCar(game);
+  car.taxi = true;
+  car.color = '#f2c94c';
+  car.model = 'Cab';
   return car;
 }
 
@@ -42,11 +52,13 @@ function spawnPed(game) {
   };
 }
 
-/** Fill the streets with traffic and pedestrians. */
+/** Fill the streets with traffic, taxis and pedestrians. */
 export function populateStreets(game) {
   game.cars = [];
   game.peds = [];
-  for (let i = 0; i < TRAFFIC_COUNT; i += 1) game.cars.push(spawnTrafficCar(game));
+  for (let i = 0; i < TRAFFIC_COUNT; i += 1) {
+    game.cars.push(i % 7 === 3 ? spawnTaxi(game) : spawnTrafficCar(game));
+  }
   for (let i = 0; i < PED_COUNT; i += 1) game.peds.push(spawnPed(game));
 }
 

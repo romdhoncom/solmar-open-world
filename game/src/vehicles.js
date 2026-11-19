@@ -2,7 +2,9 @@
 // a speed along that heading; steering turns the heading, the throttle adds
 // speed, and the grip pulls the velocity back toward the heading so a car
 // slides a little before it grips. The same step drives the player's car,
-// the traffic and the police — only the steering input differs.
+// the traffic and the police — only the steering input differs. Cars take
+// damage from hard hits: a wrecked car smokes, loses top speed, and can be
+// repaired at Marlowe Motors.
 import { CAR, CAR_MODELS, WORLD } from './config.js';
 import { pick, range } from './random.js';
 
@@ -26,6 +28,9 @@ export function makeCar(random, x, y, angle, kind) {
     siren: false,
     stuck: 0,
     dead: false,
+    damage: 0,
+    taxi: false,
+    roadblock: false,
   };
   nextCarId += 1;
   return car;
@@ -48,6 +53,9 @@ export function makePoliceCar(x, y, angle) {
     siren: true,
     stuck: 0,
     dead: false,
+    damage: 0,
+    taxi: false,
+    roadblock: false,
   };
   nextCarId += 1;
   return car;
@@ -58,13 +66,24 @@ export function resetCarIds() {
   nextCarId = 1;
 }
 
+/** Add crash damage to a car (0..1). A car at full damage barely moves. */
+export function damageCar(car, amount) {
+  car.damage = Math.min(1, car.damage + amount);
+}
+
+/** Repair a car by `amount` (0..1), as the garage does over time. */
+export function repairCar(car, amount) {
+  car.damage = Math.max(0, car.damage - amount);
+}
+
 /**
  * Advance one car by dt. `throttle` is -1..1, `steer` is -1..1, and
  * `handbrake` loosens the grip so the tail slides.
  */
 export function stepCar(car, dt, throttle, steer, handbrake) {
-  const maxSpeed = CAR.maxSpeed * car.top;
-  const maxReverse = CAR.maxReverse * car.top;
+  const health = 1 - CAR.damageSlow * car.damage;
+  const maxSpeed = CAR.maxSpeed * car.top * health;
+  const maxReverse = CAR.maxReverse * car.top * health;
   if (throttle > 0) car.speed += CAR.accel * car.accel * throttle * dt;
   else if (throttle < 0) {
     if (car.speed > 5) car.speed -= CAR.brake * dt;
@@ -89,7 +108,8 @@ export function stepCar(car, dt, throttle, steer, handbrake) {
 
 /** The car's speed as a 0..1 fraction of its top speed, for the HUD and audio. */
 export function speedFraction(car) {
-  return Math.min(1, Math.abs(car.speed) / (CAR.maxSpeed * car.top));
+  const health = 1 - CAR.damageSlow * car.damage;
+  return Math.min(1, Math.abs(car.speed) / (CAR.maxSpeed * car.top * health));
 }
 
 /** A point just ahead of the car's nose. */
