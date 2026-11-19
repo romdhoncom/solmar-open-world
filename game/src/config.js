@@ -1,25 +1,47 @@
-// Solmar — every tuning number and colour in one place.
-// The world is a fixed 3200 by 2400 logical area; the renderer scales the
-// 1280 by 720 view to the window, so no rule below depends on the screen size.
+// Solmar's tuning, all in one place.
+//
+// The world is a fixed logical map, 3200 by 2400, and the renderer scales
+// the 1280 by 720 view to the window. Nothing below depends on the screen,
+// so the same numbers run the game at any window size.
 
-export const VIEW = { width: 1280, height: 720 };
+export const VIEW = {
+  width: 1280,
+  height: 720,
+};
 
-export const WORLD = { width: 3200, height: 2400 };
+export const WORLD = {
+  width: 3200,
+  height: 2400,
+};
 
-// Roads: the avenues run north-south, the streets east-west. Every road is
-// 120 wide; the lists below are the centre lines.
+// Avenues run north-south, streets east-west. Each road is 120 wide and
+// the lists hold its centre line.
 export const ROADS = {
   width: 120,
   vertical: [240, 720, 1200, 1680, 2160, 2640],
   horizontal: [220, 620, 1020, 1420, 1820, 2120],
 };
 
-// The beach strip along the south edge, and the harbour basin on the east.
-export const BEACH = { y: 2240, sand: '#e8cf9a', water: '#2e7fa8', deep: '#1d5c7d' };
-export const HARBOUR = { x: 2940, y: 1380, width: 260, height: 420 };
+// The beach runs along the south edge; the harbour basin sits on the east.
+export const BEACH = {
+  y: 2240,
+  sand: '#e8cf9a',
+  water: '#2e7fa8',
+  deep: '#1d5c7d',
+};
 
-// The plaza: a fountain square in the block between 3rd and 4th Avenues.
-export const PLAZA = { x: 1440, y: 1220 };
+export const HARBOUR = {
+  x: 2940,
+  y: 1380,
+  width: 260,
+  height: 420,
+};
+
+// The fountain square, in the block between the 3rd and 4th Avenues.
+export const PLAZA = {
+  x: 1440,
+  y: 1220,
+};
 
 export const STEP = 1 / 60;
 
@@ -44,13 +66,13 @@ export const CAR = {
   turnRate: 2.6,
   grip: 3.2,
   handbrakeGrip: 0.9,
-  // A wrecked car loses this much of its top speed at full damage.
+  // How much top speed a fully wrecked car loses.
   damageSlow: 0.45,
 };
 
-// Car models: name, colour, top-speed multiplier, acceleration multiplier.
-// The first six are the everyday cars of Solmar; the last three are rarer
-// and only turn up in the richer districts, the marina and the hills.
+// The cars of Solmar: name, paint, and multipliers for top speed and
+// acceleration. The first six are everyday cars; the last three are rarer
+// and show up in the richer districts, the marina and the hills.
 export const CAR_MODELS = [
   { name: 'Pinto', color: '#c94f3d', top: 0.82, accel: 0.9 },
   { name: 'Comet', color: '#3d7ac9', top: 1.0, accel: 1.0 },
@@ -116,8 +138,8 @@ export const MONEY = {
   ammoPickup: 24,
 };
 
-// Street rank: a score from jobs, fights, thefts and finds. A new rank
-// unlocks a car and a shout from Rosa; the HUD shows the next one coming.
+// Street rank: a score from jobs, fights, thefts and finds. Each new rank
+// is announced, and the HUD shows how far the next one is.
 export const RANKS = [
   { score: 0, name: 'Street Rat' },
   { score: 100, name: 'Wheelman' },
@@ -126,7 +148,7 @@ export const RANKS = [
   { score: 1000, name: 'King of Solmar' },
 ];
 
-// Taxi fares: one fare at a time, a passenger to fetch, a clock to beat.
+// Taxi fares: one at a time, a passenger to fetch, a clock to beat.
 export const TAXI = {
   fareSeconds: 80,
   pickupRadius: 90,

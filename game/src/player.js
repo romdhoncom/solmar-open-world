@@ -1,11 +1,12 @@
 // Dani Vega, on foot: walking and running, aiming with the mouse, punching
 // up close, and getting in and out of cars. The player is a circle with a
-// facing angle; the car they drive is a separate entity the game keeps in sync.
+// facing angle; the car they drive is a separate entity the game keeps
+// in sync with them.
 import { CAR, PLAYER, WORLD } from './config.js';
 import { collideBuildings } from './world.js';
 import { tailPoint } from './vehicles.js';
 
-/** A fresh player standing on the street outside Marlowe Motors. */
+/** A fresh player, standing on the street outside Marlowe Motors. */
 export function makePlayer() {
   return {
     x: 1200,
@@ -26,8 +27,8 @@ export function makePlayer() {
 }
 
 /**
- * Move the player on foot by dt. `move` is -1..1 on each axis, `run` is
- * Shift, and `aimAngle` is where the mouse points. Returns the distance moved.
+ * Move the player on foot by dt. `move` is -1 to 1 on each axis, `run` is
+ * Shift, and `aimAngle` is where the mouse points. Returns how far they moved.
  */
 export function stepPlayerOnFoot(game, dt, move, run, aimAngle) {
   const player = game.player;
@@ -66,16 +67,21 @@ export function stepPlayerOnFoot(game, dt, move, run, aimAngle) {
     game.particles.push({
       x: player.x - Math.cos(player.angle) * 12,
       y: player.y - Math.sin(player.angle) * 12,
-      vx: 0, vy: 0, life: 0.3, max: 0.3, color: '#c9c4b2', size: 4,
+      vx: 0,
+      vy: 0,
+      life: 0.3,
+      max: 0.3,
+      color: '#c9c4b2',
+      size: 4,
     });
   }
   return length > 0 ? speed * dt : 0;
 }
 
 /**
- * Throw a punch at whatever stands in front of Dani: a Breaker, an officer,
- * or a pedestrian who got too close. No ammo, short reach, quick to throw.
- * Returns the thing that was hit, or null.
+ * Throw a punch at whatever stands in front of Dani: a Breaker, an
+ * officer, or a pedestrian who got too close. No ammo, short reach, quick
+ * to throw. Returns the thing that was hit, or null.
  */
 export function playerPunch(game) {
   const player = game.player;
@@ -175,7 +181,7 @@ export function exitCar(game) {
   car.speed = 0;
 }
 
-/** True when a police officer, a police car or a pedestrian can see the spot. */
+/** True when an officer, a police car or a pedestrian can see the spot. */
 export function witnessNearby(game, x, y) {
   for (const officer of game.officers) {
     if (Math.hypot(officer.x - x, officer.y - y) < 420) return true;

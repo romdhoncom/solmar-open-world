@@ -1,10 +1,10 @@
-// Saving Solmar: money, finished missions, kills, fares and packages found,
-// and where the player stands, in this browser's local storage. A save is
-// written whenever a mission is finished and whenever the player pauses;
-// loading it puts the player back on the street with their progress intact.
-// Version 2 adds kills, fares and packages; a version 1 save still loads,
-// with those counts starting at zero. Nothing here touches the game while
-// a screenshot scene is staged.
+// Saving Solmar: money, finished missions, kills, fares and packages
+// found, and where the player stands, in this browser's local storage.
+// A save is written whenever a mission is finished and whenever the
+// player pauses; loading it puts the player back on the street with their
+// progress intact. Version 2 adds kills, fares and packages; a version 1
+// save still loads, with those counts starting at zero. Nothing here
+// touches the game while a screenshot scene is staged.
 import { SAVE_KEY } from './config.js';
 
 /** The save record for a game state. */

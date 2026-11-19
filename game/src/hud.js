@@ -1,10 +1,10 @@
 // The HUD: cash, health, ammo, wanted stars, street rank, the mission
 // objective, the banner that announces a job, and the minimap — a live
 // thumbnail of the whole city with the player, the police, the fare, the
-// hidden packages and the mission target drawn on it. Everything is painted
-// on the canvas, in view space, and every element stays inside the frame:
-// the speedometer lives in the top-left panel and the minimap label inside
-// the minimap panel, never below the picture.
+// hidden packages and the mission target drawn on it. Everything is
+// painted on the canvas, in view space, and every element stays inside
+// the frame: the speedometer lives in the top-left panel and the minimap
+// label inside the minimap panel, never below the picture.
 import { FONT, FONT_DISPLAY, PALETTE, RANKS, VIEW, WORLD } from './config.js';
 import { objectiveText } from './missions.js';
 import { playerCar } from './player.js';
@@ -67,34 +67,31 @@ export function drawMinimap(ctx, game) {
     ctx.arc(x0 + x * scale, y0 + y * scale, radius, 0, Math.PI * 2);
     ctx.fill();
   };
+  const diamond = (x, y, color, radius) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - radius);
+    ctx.lineTo(x + radius, y);
+    ctx.lineTo(x, y + radius);
+    ctx.lineTo(x - radius, y);
+    ctx.closePath();
+    ctx.fill();
+  };
   // Mission target: a pulsing gold diamond.
   if (game.missions.active && game.missions.target) {
     const pulse = 5 + Math.sin(game.time * 4) * 2;
-    const tx = x0 + game.missions.target.x * scale;
-    const ty = y0 + game.missions.target.y * scale;
-    ctx.fillStyle = PALETTE.gold;
-    ctx.beginPath();
-    ctx.moveTo(tx, ty - pulse);
-    ctx.lineTo(tx + pulse, ty);
-    ctx.lineTo(tx, ty + pulse);
-    ctx.lineTo(tx - pulse, ty);
-    ctx.closePath();
-    ctx.fill();
+    diamond(
+      x0 + game.missions.target.x * scale,
+      y0 + game.missions.target.y * scale,
+      PALETTE.gold,
+      pulse,
+    );
   }
   // Taxi fare: a blue diamond at the pickup or the drop-off.
   const fare = game.sidejobs.fare;
   if (fare) {
     const point = fare.stage === 0 ? fare.pickup : fare.dest;
-    const fx = x0 + point.x * scale;
-    const fy = y0 + point.y * scale;
-    ctx.fillStyle = PALETTE.blue;
-    ctx.beginPath();
-    ctx.moveTo(fx, fy - 5);
-    ctx.lineTo(fx + 5, fy);
-    ctx.lineTo(fx, fy + 5);
-    ctx.lineTo(fx - 5, fy);
-    ctx.closePath();
-    ctx.fill();
+    diamond(x0 + point.x * scale, y0 + point.y * scale, PALETTE.blue, 5);
   }
   // Hidden packages: small gold dots.
   for (const pack of game.sidejobs.packages) {
@@ -179,7 +176,11 @@ export function drawHud(ctx, game) {
   }
 
   // Top-centre: the mission objective, or the fare while one is running.
-  const objective = game.missions.active ? objectiveText(game) : game.sidejobs.fare ? fareObjective(game) : 'Press Enter to start the next job.';
+  const objective = game.missions.active
+    ? objectiveText(game)
+    : game.sidejobs.fare
+      ? fareObjective(game)
+      : 'Press Enter to start the next job.';
   ctx.font = 'bold 15px ' + FONT;
   const measured = ctx.measureText(objective).width;
   panel(ctx, (VIEW.width - measured - 44) / 2, 14, measured + 44, 40);

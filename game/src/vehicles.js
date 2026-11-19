@@ -1,16 +1,16 @@
-// Cars: their physics and their kinds. A car is a point with a heading and
-// a speed along that heading; steering turns the heading, the throttle adds
-// speed, and the grip pulls the velocity back toward the heading so a car
-// slides a little before it grips. The same step drives the player's car,
-// the traffic and the police — only the steering input differs. Cars take
-// damage from hard hits: a wrecked car smokes, loses top speed, and can be
-// repaired at Marlowe Motors.
+// Cars: what they are and how they drive. A car is a point with a
+// heading and a speed along that heading. Steering turns the heading,
+// the throttle adds speed, and the grip pulls the velocity back toward
+// the heading, so a car slides a little before it grips. The same step
+// drives the player's car, the traffic and the police — only the steering
+// input differs. Hard hits damage a car: a wrecked one smokes, loses top
+// speed, and can be repaired at Marlowe Motors.
 import { CAR, CAR_MODELS, WORLD } from './config.js';
 import { pick, range } from './random.js';
 
 let nextCarId = 1;
 
-/** Make a car of a random model at (x, y), facing `angle`. */
+/** A car of a random model at (x, y), facing `angle`. */
 export function makeCar(random, x, y, angle, kind) {
   const model = pick(random, CAR_MODELS);
   const car = {
@@ -20,7 +20,9 @@ export function makeCar(random, x, y, angle, kind) {
     color: model.color,
     top: model.top,
     accel: model.accel,
-    x, y, angle,
+    x,
+    y,
+    angle,
     speed: 0,
     steer: 0,
     driver: kind === 'traffic' ? 'traffic' : null,
@@ -36,7 +38,7 @@ export function makeCar(random, x, y, angle, kind) {
   return car;
 }
 
-/** Make a police cruiser at (x, y), facing `angle`. */
+/** A police cruiser at (x, y), facing `angle`. */
 export function makePoliceCar(x, y, angle) {
   const car = {
     id: nextCarId,
@@ -45,7 +47,9 @@ export function makePoliceCar(x, y, angle) {
     color: '#20242e',
     top: 1.08,
     accel: 1.08,
-    x, y, angle,
+    x,
+    y,
+    angle,
     speed: 0,
     steer: 0,
     driver: 'police',
@@ -61,31 +65,32 @@ export function makePoliceCar(x, y, angle) {
   return car;
 }
 
-/** Reset the id counter when a fresh game starts. */
+/** Restart the id counter when a fresh game starts. */
 export function resetCarIds() {
   nextCarId = 1;
 }
 
-/** Add crash damage to a car (0..1). A car at full damage barely moves. */
+/** Add crash damage to a car (0 to 1). A car at full damage barely moves. */
 export function damageCar(car, amount) {
   car.damage = Math.min(1, car.damage + amount);
 }
 
-/** Repair a car by `amount` (0..1), as the garage does over time. */
+/** Repair a car by `amount` (0 to 1), as the garage does over time. */
 export function repairCar(car, amount) {
   car.damage = Math.max(0, car.damage - amount);
 }
 
 /**
- * Advance one car by dt. `throttle` is -1..1, `steer` is -1..1, and
+ * Move one car by dt. `throttle` runs -1 to 1, `steer` runs -1 to 1, and
  * `handbrake` loosens the grip so the tail slides.
  */
 export function stepCar(car, dt, throttle, steer, handbrake) {
   const health = 1 - CAR.damageSlow * car.damage;
   const maxSpeed = CAR.maxSpeed * car.top * health;
   const maxReverse = CAR.maxReverse * car.top * health;
-  if (throttle > 0) car.speed += CAR.accel * car.accel * throttle * dt;
-  else if (throttle < 0) {
+  if (throttle > 0) {
+    car.speed += CAR.accel * car.accel * throttle * dt;
+  } else if (throttle < 0) {
     if (car.speed > 5) car.speed -= CAR.brake * dt;
     else car.speed += CAR.reverseAccel * car.accel * throttle * dt;
   } else {
@@ -106,7 +111,7 @@ export function stepCar(car, dt, throttle, steer, handbrake) {
   car.steer = steer;
 }
 
-/** The car's speed as a 0..1 fraction of its top speed, for the HUD and audio. */
+/** The car's speed as a 0 to 1 share of its top speed, for HUD and audio. */
 export function speedFraction(car) {
   const health = 1 - CAR.damageSlow * car.damage;
   return Math.min(1, Math.abs(car.speed) / (CAR.maxSpeed * car.top * health));
@@ -128,7 +133,7 @@ export function tailPoint(car) {
   };
 }
 
-/** Scatter parked cars along the roads, plus the player's starting car. */
+/** Scatter parked cars along the roads. */
 export function scatterParkedCars(random, city) {
   const cars = [];
   const spots = [];
@@ -140,8 +145,7 @@ export function scatterParkedCars(random, city) {
   }
   for (const spot of spots) {
     if (random() < 0.45) continue;
-    const car = makeCar(random, spot.x, spot.y, spot.angle, 'parked');
-    cars.push(car);
+    cars.push(makeCar(random, spot.x, spot.y, spot.angle, 'parked'));
   }
   return cars;
 }

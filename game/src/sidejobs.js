@@ -1,8 +1,8 @@
 // Side jobs, for the hours between story missions: taxi fares and hidden
-// packages. A fare appears when Dani is driving with no job running — pick
-// the passenger up, beat the clock to their stop, and the meter pays out
-// with a tip for speed. Twelve gold packages are hidden around Solmar;
-// finding them all pays a bonus on top.
+// packages. A fare appears when Dani is driving with no job running —
+// pick the passenger up, beat the clock to their stop, and the meter pays
+// out with a tip for speed. Twelve gold packages are hidden around
+// Solmar; finding them all pays a bonus on top.
 import { MONEY, TAXI } from './config.js';
 import { roadPointNear } from './world.js';
 

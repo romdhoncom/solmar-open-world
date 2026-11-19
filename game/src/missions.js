@@ -1,9 +1,9 @@
-// Solmar's story: nine jobs for Dani Vega, fresh off the bus with $150 and
-// a phone number for Rosa Marlowe, who runs Marlowe Motors. Each mission is
-// a small state machine: a target to reach, a thing to do there, and a
-// payout when it is done. Finishing one starts the next; finishing all nine
-// makes Dani the King of Solmar. One job is timed — miss the clock and the
-// fare walks away, and the job can be tried again.
+// Solmar's story: nine jobs for Dani Vega, fresh off the bus with $150
+// and a phone number for Rosa Marlowe, who runs Marlowe Motors. Each
+// mission is a small state machine: a target to reach, a thing to do
+// there, and a payout when it is done. Finishing one starts the next;
+// finishing all nine makes Dani the King of Solmar. One job is timed —
+// miss the clock and the fare walks away, and the job can be tried again.
 import { MONEY, TAXI } from './config.js';
 import { spawnEnemy } from './combat.js';
 import { addWanted } from './police.js';
@@ -191,12 +191,13 @@ export function stepMissions(game, dt) {
   if (missions.bannerTimer > 0) missions.bannerTimer -= dt;
   if (!missions.active) return;
   const player = game.player;
+  const index = missions.index;
 
-  if (missions.index === 0) {
+  if (index === 0) {
     if (atTarget(game, 90)) finishMission(game);
     return;
   }
-  if (missions.index === 1) {
+  if (index === 1) {
     if (missions.stage === 0) {
       if (player.inCar) {
         missions.stage = 1;
@@ -207,7 +208,7 @@ export function stepMissions(game, dt) {
     if (atTarget(game, 110) && player.inCar) finishMission(game);
     return;
   }
-  if (missions.index === 2) {
+  if (index === 2) {
     if (missions.stage === 0) {
       if (atTarget(game, 90)) {
         missions.stage = 1;
@@ -221,7 +222,7 @@ export function stepMissions(game, dt) {
     if (atTarget(game, 90)) finishMission(game);
     return;
   }
-  if (missions.index === 3) {
+  if (index === 3) {
     if (missions.stage === 0) {
       if (atTarget(game, 160)) {
         missions.stage = 1;
@@ -237,7 +238,7 @@ export function stepMissions(game, dt) {
     if (game.enemies.length === 0) finishMission(game);
     return;
   }
-  if (missions.index === 4) {
+  if (index === 4) {
     if (missions.stage === 0) {
       if (atTarget(game, 90)) {
         missions.stage = 1;
@@ -257,7 +258,7 @@ export function stepMissions(game, dt) {
     if (atTarget(game, 100)) finishMission(game);
     return;
   }
-  if (missions.index === 5) {
+  if (index === 5) {
     if (atTarget(game, 100)) {
       missions.stage += 1;
       if (missions.stage >= COURIER_STOPS.length) {
@@ -271,7 +272,7 @@ export function stepMissions(game, dt) {
     }
     return;
   }
-  if (missions.index === 6) {
+  if (index === 6) {
     if (missions.stage === 0) {
       if (atTarget(game, 140)) {
         missions.stage = 1;
@@ -302,7 +303,7 @@ export function stepMissions(game, dt) {
     if (atTarget(game, 110) && player.inCar) finishMission(game);
     return;
   }
-  if (missions.index === 7) {
+  if (index === 7) {
     if (missions.stage === 0) {
       if (atTarget(game, 120)) {
         missions.stage = 1;
@@ -329,7 +330,7 @@ export function stepMissions(game, dt) {
     if (atTarget(game, 110) && game.crime.wanted === 0) finishMission(game);
     return;
   }
-  if (missions.index === 8) {
+  if (index === 8) {
     if (missions.stage === 0) {
       if (atTarget(game, 160)) {
         missions.stage = 1;

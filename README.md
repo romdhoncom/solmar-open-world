@@ -35,7 +35,7 @@ WASD move and drive, Shift run, mouse aim, click shoot, F punch, R reload, E ent
 - `game/index.html` — the page; `game/src/main.js` — boot and the game loop.
 - `game/src/game.js` — the simulation step; `world.js` — the city; `traffic.js` — traffic and pedestrians; `vehicles.js` — cars and driving; `player.js` — Dani on foot; `combat.js` — shooting and the Breakers; `police.js` — the wanted level; `missions.js` — the nine jobs; `sidejobs.js` — fares and packages; `rank.js` — street rank; `render.js` + `hud.js` — drawing; `audio.js` — synthesized sound; `save.js` — browser saves; `input.js` — keyboard and mouse; `shots.js` — the four screenshot scenes.
 - `main.ts` — copies `game/` and `screenshots/` to `/output` and writes `dossier.json`.
-- `shots.json` — the four screenshots: the title, a drive, a police chase and the finale.
+- `shots.json` — the four screenshots: a chase, a walk, a drive and the finale.
 
 ---
 

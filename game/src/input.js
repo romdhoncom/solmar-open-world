@@ -1,8 +1,8 @@
-// Keyboard and pointer input for Solmar. Held keys are read every frame;
-// one-shot presses (enter a car, pause, confirm) are queued as flags and
-// taken once by the loop, so a press between two frames is never lost and
-// never counted twice. The mouse position is kept in view coordinates and
-// the loop turns it into a world aim point.
+// Keyboard and pointer input for Solmar. Held keys are read every
+// frame; one-shot presses (enter a car, pause, confirm) are queued as
+// flags and taken once by the loop, so a press between two frames is
+// never lost and never counted twice. The mouse position is kept in view
+// coordinates and the loop turns it into a world aim point.
 
 export const ACTION_ENTER = 1;
 export const ACTION_PAUSE = 2;
@@ -69,7 +69,9 @@ export function createInput(canvas) {
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
   function hasAny(set) {
-    for (const code of set) if (keys.has(code)) return true;
+    for (const code of set) {
+      if (keys.has(code)) return true;
+    }
     return false;
   }
 

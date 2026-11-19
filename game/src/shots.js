@@ -1,19 +1,23 @@
-// The screenshot scenes behind ?shot=start|drive|chase|mission|walk. Each one
-// plays the real rules forward from a fresh game for a fixed number of
-// steps, steered by a simple autopilot, so the frame is what a short game
-// really looks like and the same seed always gives the same frame. The
-// autopilot drives along the roads toward a waypoint, and in the chase and
-// mission scenes the wanted level, the police and the enemies are set up
-// first, so the screenshot shows the systems working: the chase frame
-// carries four stars, a roadblock ahead and the bank-job escape objective
-// on the HUD; the mission frame is the finale, with Dani shooting at
-// Marco Vane's crew on the docks.
+// The screenshot scenes behind ?shot=start|drive|chase|mission|walk.
+// Each one plays the real rules forward from a fresh game for a fixed
+// number of steps, steered by a simple autopilot, so the frame is what a
+// short game really looks like and the same seed always gives the same
+// frame. The autopilot drives along the roads toward a waypoint, and in
+// the chase and mission scenes the wanted level, the police and the
+// enemies are set up first, so the screenshot shows the systems working:
+// the chase frame carries four stars, a roadblock ahead and the bank-job
+// escape objective on the HUD; the mission frame is the finale, with Dani
+// shooting at Marco Vane's crew on the docks.
 import { ROADS, STEP } from './config.js';
 import { DOCKS, HIDEOUT, startMission } from './missions.js';
 import { enterCar, playerCar } from './player.js';
 import { makeBullet, spawnEnemy } from './combat.js';
 import { makePoliceCar, stepCar } from './vehicles.js';
 import { SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+import * as trafficModule from './traffic.js';
+import * as policeModule from './police.js';
+import * as combatModule from './combat.js';
+import * as missionsModule from './missions.js';
 
 const START_SECONDS = 6;
 const DRIVE_SECONDS = 16;
@@ -22,13 +26,17 @@ const MISSION_SECONDS = 10;
 
 function nearestVertical(x) {
   let best = ROADS.vertical[0];
-  for (const vx of ROADS.vertical) if (Math.abs(vx - x) < Math.abs(best - x)) best = vx;
+  for (const vx of ROADS.vertical) {
+    if (Math.abs(vx - x) < Math.abs(best - x)) best = vx;
+  }
   return best;
 }
 
 function nearestHorizontal(y) {
   let best = ROADS.horizontal[0];
-  for (const hy of ROADS.horizontal) if (Math.abs(hy - y) < Math.abs(best - y)) best = hy;
+  for (const hy of ROADS.horizontal) {
+    if (Math.abs(hy - y) < Math.abs(best - y)) best = hy;
+  }
   return best;
 }
 
@@ -73,8 +81,7 @@ function simulate(game, seconds, driveTarget, act) {
     if (act) act(game, i * STEP);
     // Step the world without input: traffic, police, combat, missions.
     game.time += STEP;
-    const { stepTraffic } = trafficModule;
-    stepTraffic(game, STEP);
+    trafficModule.stepTraffic(game, STEP);
     policeModule.stepPolice(game, STEP);
     policeModule.coolWanted(game, STEP);
     combatModule.stepCombat(game, STEP);
@@ -90,17 +97,23 @@ function simulate(game, seconds, driveTarget, act) {
   }
 }
 
-// The traffic, police, combat and mission modules are imported below the
-// simulate helper: ES module imports are hoisted, so they are available
-// when simulate runs, and this keeps the staging logic at the top of the file.
-import * as trafficModule from './traffic.js';
-import * as policeModule from './police.js';
-import * as combatModule from './combat.js';
-import * as missionsModule from './missions.js';
+/** Pick the nearest enemy to the player, or null when none are left. */
+function nearestEnemy(game) {
+  let nearest = null;
+  let bestD = Infinity;
+  for (const enemy of game.enemies) {
+    const d = Math.hypot(enemy.x - game.player.x, enemy.y - game.player.y);
+    if (d < bestD) {
+      bestD = d;
+      nearest = enemy;
+    }
+  }
+  return nearest;
+}
 
 /**
- * Set `game` to the named scene (start, drive, chase or mission; any other
- * name is start) and return the screen to draw over it.
+ * Set `game` to the named scene (start, drive, chase or mission; any
+ * other name is start) and return the screen to draw over it.
  */
 export function stageShot(name, game) {
   if (name === 'walk') {
@@ -119,9 +132,9 @@ export function stageShot(name, game) {
   if (name === 'drive') {
     const car = game.cars.find((c) => c.model === 'Comet' && c.kind === 'parked');
     if (car) enterCar(game, car);
-    // A cross-city drive: past the plaza, down 4th Avenue, toward the flats —
-    // and when the corner is reached, back across town, so the car is still
-    // moving on a road when the frame is taken.
+    // A cross-city drive: past the plaza, down 4th Avenue, toward the
+    // flats — and when the corner is reached, back across town, so the car
+    // is still moving on a road when the frame is taken.
     const patrol = { x: 2160, y: 1820 };
     simulate(game, DRIVE_SECONDS, patrol, (g) => {
       const driven = playerCar(g);
@@ -167,9 +180,9 @@ export function stageShot(name, game) {
   }
   if (name === 'mission') {
     // The finale: King of Solmar. Dani walks onto the docks, Marco Vane's
-    // crew is already there, and the fight is running with shots in the air.
-    // The crew is placed by hand so Dani can stand a little back from the
-    // water, near the centre of the frame.
+    // crew is already there, and the fight is running with shots in the
+    // air. The crew is placed by hand so Dani can stand a little back
+    // from the water, near the centre of the frame.
     startMission(game, 8);
     game.missions.stage = 1;
     game.missions.text = 'End Marco Vane’s crew.';
@@ -195,14 +208,9 @@ export function stageShot(name, game) {
       shotTimer -= STEP;
       if (shotTimer > 0 || g.enemies.length === 0) return;
       shotTimer = 0.25;
-      let nearest = null;
-      let bestD = Infinity;
-      for (const enemy of g.enemies) {
-        const d = Math.hypot(enemy.x - g.player.x, enemy.y - g.player.y);
-        if (d < bestD) { bestD = d; nearest = enemy; }
-      }
-      if (!nearest) return;
-      const angle = Math.atan2(nearest.y - g.player.y, nearest.x - g.player.x);
+      const target = nearestEnemy(g);
+      if (!target) return;
+      const angle = Math.atan2(target.y - g.player.y, target.x - g.player.x);
       g.player.angle = angle;
       g.bullets.push(makeBullet(
         g.player.x + Math.cos(angle) * 22,
@@ -211,20 +219,15 @@ export function stageShot(name, game) {
         true,
       ));
     });
-    // The staged fight must not leave Dani down: the screenshot shows the
-    // fight in progress, not its ending.
+    // The staged fight must not leave Dani down: the screenshot shows
+    // the fight in progress, not its ending.
     if (game.player.health < 40) game.player.health = 100;
     // Aim the crosshair at the nearest Breaker, so it sits on the fight.
-    if (game.enemies.length > 0) {
-      let nearest = game.enemies[0];
-      let bestD = Infinity;
-      for (const enemy of game.enemies) {
-        const d = Math.hypot(enemy.x - game.player.x, enemy.y - game.player.y);
-        if (d < bestD) { bestD = d; nearest = enemy; }
-      }
+    const target = nearestEnemy(game);
+    if (target) {
       const vx = Math.max(0, Math.min(3200 - 1280, game.camera.x - 640));
       const vy = Math.max(0, Math.min(2400 - 720, game.camera.y - 360));
-      game.aimScreen = { x: nearest.x - vx, y: nearest.y - vy };
+      game.aimScreen = { x: target.x - vx, y: target.y - vy };
     }
     return { screen: SCREEN_PLAY };
   }

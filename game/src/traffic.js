@@ -1,8 +1,8 @@
 // Solmar's streets, alive: traffic cars that drive the road grid, yellow
-// taxis that work the same roads, and pedestrians who stroll the sidewalks.
-// Traffic cars pick a road, drive along it, and turn at intersections;
-// pedestrians walk beside a road and turn at its ends. Neither knows about
-// the player — they only slow down for the car ahead of them and scatter
+// taxis working the same roads, and pedestrians strolling the sidewalks.
+// A traffic car picks a road, drives along it and turns at intersections;
+// a pedestrian walks beside a road and turns at its ends. Neither knows
+// about the player — they only slow down for the car ahead and scatter
 // when a gun goes off.
 import { CAR, PED_COUNT, ROADS, TRAFFIC_COUNT, WORLD } from './config.js';
 import { pick, range } from './random.js';
@@ -16,7 +16,9 @@ function spawnTrafficCar(game) {
   const random = game.random;
   const point = randomIntersection(random);
   const vertical = random() < 0.5;
-  const angle = vertical ? (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2) : (random() < 0.5 ? 0 : Math.PI);
+  const angle = vertical
+    ? (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2)
+    : (random() < 0.5 ? 0 : Math.PI);
   const car = makeCar(random, point.x, point.y, angle, 'traffic');
   car.wasTraffic = true;
   car.speed = range(random, 120, 200);
@@ -63,8 +65,8 @@ export function populateStreets(game) {
 }
 
 /**
- * Drive one traffic car: keep to its road, slow for the car ahead, and at
- * an intersection sometimes turn onto the crossing road.
+ * Drive one traffic car: keep to its road, slow for the car ahead, and
+ * at an intersection sometimes turn onto the crossing road.
  */
 function stepTrafficCar(game, car, dt) {
   const random = game.random;
@@ -89,12 +91,14 @@ function stepTrafficCar(game, car, dt) {
   let diff = wantAngle - car.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
-  let steer = Math.max(-1, Math.min(1, diff * 2));
+  const steer = Math.max(-1, Math.min(1, diff * 2));
   // At an intersection, sometimes turn.
   const nearX = ROADS.vertical.some((vx) => Math.abs(car.x - vx) < 26);
   const nearY = ROADS.horizontal.some((hy) => Math.abs(car.y - hy) < 26);
   if (nearX && nearY && random() < dt * 0.35) {
-    const turnTo = road.axis === 'v' ? (random() < 0.5 ? 0 : Math.PI) : (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
+    const turnTo = road.axis === 'v'
+      ? (random() < 0.5 ? 0 : Math.PI)
+      : (random() < 0.5 ? Math.PI / 2 : -Math.PI / 2);
     car.angle = turnTo;
   }
   stepCar(car, dt, throttle, steer, false);
@@ -112,9 +116,10 @@ function stepPed(game, ped, dt) {
     ped.flee -= dt;
     ped.x += Math.cos(ped.angle) * 150 * dt;
     ped.y += Math.sin(ped.angle) * 150 * dt;
+  } else if (ped.axis === 'v') {
+    ped.y += ped.dir * ped.speed * dt;
   } else {
-    if (ped.axis === 'v') ped.y += ped.dir * ped.speed * dt;
-    else ped.x += ped.dir * ped.speed * dt;
+    ped.x += ped.dir * ped.speed * dt;
   }
   if (ped.x < 60 || ped.x > WORLD.width - 60 || ped.y < 60 || ped.y > WORLD.height - 60) {
     ped.dir *= -1;

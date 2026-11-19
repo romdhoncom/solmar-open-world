@@ -1,12 +1,11 @@
-// Drawing only: the game state and the current screen in, pixels out. The
-// 1280 by 720 view is scaled to fit the window and centred. The static
-// city is one pre-painted canvas; the cars, people, bullets and effects are
-// drawn over it each frame, then the HUD. Title and pause screens are
-// panels over a live view of the city. A golden-hour vignette warms the
-// frame, and the camera shakes a little after a hard crash.
+// Drawing only: the game state and the current screen in, pixels out.
+// The 1280 by 720 view is scaled to fit the window and centred. The
+// static city is one pre-painted canvas; the cars, people, bullets and
+// effects are drawn over it each frame, then the HUD. Title and pause
+// screens are panels over a live view of the city. A golden-hour vignette
+// warms the frame, and the camera shakes a little after a hard crash.
 import { CAR, FONT, FONT_DISPLAY, PALETTE, PLAYER, POLICE_LIGHT_A, POLICE_LIGHT_B, VIEW, WORLD } from './config.js';
 import { drawHud } from './hud.js';
-import { playerCar } from './player.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -230,8 +229,8 @@ export function createRenderer(canvas) {
     const vy = Math.max(0, Math.min(WORLD.height - VIEW.height, camera.y - VIEW.height / 2));
     context.save();
     context.translate(-vx, -vy);
-    // Camera shake after a crash: a small deterministic wobble, so a staged
-    // screenshot is the same every time it is taken.
+    // Camera shake after a crash: a small deterministic wobble, so a
+    // staged screenshot is the same every time it is taken.
     if (game.shake > 0) {
       const sx = Math.sin(game.time * 47) * game.shake * 0.5;
       const sy = Math.cos(game.time * 53) * game.shake * 0.5;
@@ -313,7 +312,10 @@ export function createRenderer(canvas) {
     }
     // Enemies: brutes are big and dark, runners small and quick-looking.
     for (const enemy of game.enemies) {
-      const color = enemy.flash > 0 ? '#ffffff' : enemy.kind === 'brute' ? '#6b1d1d' : enemy.kind === 'runner' ? '#8a2f5e' : '#d94f2f';
+      const color = enemy.flash > 0
+        ? '#ffffff'
+        : enemy.kind === 'brute' ? '#6b1d1d'
+          : enemy.kind === 'runner' ? '#8a2f5e' : '#d94f2f';
       const radius = enemy.kind === 'brute' ? 17 : enemy.kind === 'runner' ? 11 : 13;
       drawPerson(context, enemy.x, enemy.y, enemy.angle, color, radius);
       const maxHealth = enemy.kind === 'brute' ? 170 : enemy.kind === 'runner' ? 50 : 70;
@@ -337,9 +339,15 @@ export function createRenderer(canvas) {
     }
     // Cars: parked and traffic first, then the player's, then police.
     const cars = game.cars.filter((c) => !c.dead);
-    for (const car of cars) if (car.kind !== 'player' && car.kind !== 'police') drawCarBody(context, car, game.time);
-    for (const car of cars) if (car.kind === 'player') drawCarBody(context, car, game.time);
-    for (const car of cars) if (car.kind === 'police') drawCarBody(context, car, game.time);
+    for (const car of cars) {
+      if (car.kind !== 'player' && car.kind !== 'police') drawCarBody(context, car, game.time);
+    }
+    for (const car of cars) {
+      if (car.kind === 'player') drawCarBody(context, car, game.time);
+    }
+    for (const car of cars) {
+      if (car.kind === 'police') drawCarBody(context, car, game.time);
+    }
     // The helicopter at five stars.
     drawHelicopter(context, game.heli, game.time);
     // The player on foot.

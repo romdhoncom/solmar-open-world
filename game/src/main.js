@@ -1,10 +1,10 @@
-// Boot and the one loop: input is read every frame, the game advances in
-// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the
-// renderer paints what is there. The game moves between six screens:
-// title, play, paused, busted, wasted and complete. Busted and wasted are
-// brief stops: the police or the hospital take their cut, then play
-// resumes. Complete appears once, when the ninth job is done — and then
-// free roam carries on.
+// Boot and the one loop: input is read every frame, the game advances
+// in fixed 1/60 s steps (several in a slow frame, none in a fast one),
+// and the renderer paints what is there. The game moves between six
+// screens: title, play, paused, busted, wasted and complete. Busted and
+// wasted are brief stops: the police or the hospital take their cut, then
+// play resumes. Complete appears once, when the ninth job is done — and
+// then free roam carries on.
 //
 // ?seed=N fixes the city and the traffic. ?shot=start|drive|chase|mission
 // (with &seed=N) stages that scene instead of running the loop, paints it
@@ -15,6 +15,7 @@ import { MISSION_COUNT } from './missions.js';
 import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_COMPLETE, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WASTED } from './render.js';
 import { stageShot } from './shots.js';
+import * as titleTraffic from './traffic.js';
 
 const MAX_FRAME = 0.25;
 
@@ -75,6 +76,14 @@ function runGame() {
     announce('Back on the street.');
   }
 
+  // Advance the title backdrop: traffic and pedestrians only, no crimes.
+  function stepTitleBackdrop(g) {
+    g.time += STEP;
+    titleTraffic.stepTraffic(g, STEP);
+    g.camera.x = g.player.x;
+    g.camera.y = g.player.y;
+  }
+
   function frame(now) {
     requestAnimationFrame(frame);
     accumulator += Math.min((now - last) / 1000, MAX_FRAME);
@@ -89,7 +98,7 @@ function runGame() {
       }
       // The title screen's city stays alive behind the panel.
       while (accumulator >= STEP) {
-        stepGameTitle(game);
+        stepTitleBackdrop(game);
         accumulator -= STEP;
       }
     } else if (screen === SCREEN_PLAY) {
@@ -136,15 +145,6 @@ function runGame() {
     renderer.draw(game, screen);
   }
 
-  // Advance the title backdrop: traffic and pedestrians only, no crimes.
-  function stepGameTitle(g) {
-    g.time += STEP;
-    const { stepTraffic } = titleTraffic;
-    stepTraffic(g, STEP);
-    g.camera.x = g.player.x;
-    g.camera.y = g.player.y;
-  }
-
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
@@ -156,8 +156,6 @@ function runGame() {
   announce('Solmar. Press Enter or click to start.');
   requestAnimationFrame(frame);
 }
-
-import * as titleTraffic from './traffic.js';
 
 if (shot) runShot(shot);
 else runGame();

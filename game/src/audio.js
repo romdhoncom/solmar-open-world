@@ -1,9 +1,9 @@
-// Solmar's sound: everything is synthesized with WebAudio, no audio files.
-// A low engine hum that follows the car's speed, a two-tone police siren, a
-// noise-burst gunshot, a punch thump, a horn, a tyre screech for the
-// handbrake, chimes for pickups, fares and rank-ups, and a small looping
-// bass-and-lead groove for the drive. Nothing starts until the player first
-// interacts, and M mutes it all.
+// Solmar's sound: everything is synthesized with WebAudio, no audio
+// files. A low engine hum that follows the car's speed, a two-tone police
+// siren, a noise-burst gunshot, a punch thump, a horn, a tyre screech for
+// the handbrake, chimes for pickups, fares and rank-ups, and a small
+// looping bass-and-lead groove for the drive. Nothing starts until the
+// player first interacts, and M mutes it all.
 
 export function createAudio() {
   let context = null;
@@ -106,7 +106,7 @@ export function createAudio() {
       if (master) master.gain.value = muted ? 0 : 0.5;
       return muted;
     },
-    /** speed01 is 0..1: the engine hum follows the car's speed. */
+    /** speed01 is 0 to 1: the engine hum follows the car's speed. */
     engine(speed01, driving) {
       if (!context || muted) return;
       const target = driving ? 0.05 + speed01 * 0.09 : 0;

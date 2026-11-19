@@ -1,10 +1,10 @@
-// Solmar's simulation: one game state and one step. createGame builds the
-// city, the streets and Dani; stepGame advances everything by one fixed
-// step — the player or their car, the traffic, the police, the combat, the
-// missions, the side jobs and the wanted level — and reports what happened
-// as events the loop reacts to (busted, wasted, mission started). Nothing
+// Solmar's simulation: one game state and one step. createGame builds
+// the city, the streets and Dani; stepGame advances everything by one
+// fixed step — the player or their car, the traffic, the police, the
+// combat, the missions, the side jobs and the wanted level — and reports
+// what happened as events the loop reacts to (busted, wasted). Nothing
 // here draws.
-import { CAR, COMBAT, MONEY, STEP, WORLD } from './config.js';
+import { CAR, COMBAT, MONEY, WORLD } from './config.js';
 import { createRandom } from './random.js';
 import { buildCity, collideBuildings, hitsBuilding, paintCity } from './world.js';
 import { createAudio } from './audio.js';
@@ -110,10 +110,138 @@ export function drivenCar(game) {
   return playerCar(game);
 }
 
+/** Step the player's car: throttle, steering, handbrake skids, the horn, crashes. */
+function stepDrivenCar(game, car, input, dt, actions) {
+  const player = game.player;
+  const move = input.move();
+  const throttle = move.y === 0 ? 0 : -move.y;
+  stepCar(car, dt, throttle, move.x, input.braking());
+  player.x = car.x;
+  player.y = car.y;
+  player.angle = car.angle;
+  // Handbrake at speed: skid marks, smoke and a screech.
+  if (input.braking() && Math.abs(car.speed) > 200) {
+    game.skids.push({ x: car.x, y: car.y, angle: car.angle, life: 2.2, max: 2.2 });
+    if (game.random() < dt * 20) {
+      game.particles.push({
+        x: car.x - Math.cos(car.angle) * 30,
+        y: car.y - Math.sin(car.angle) * 30,
+        vx: 0,
+        vy: -20,
+        life: 0.4,
+        max: 0.4,
+        color: '#9a9a9a',
+        size: 7,
+      });
+    }
+    game.audio.skid(dt, true);
+  } else {
+    game.audio.skid(dt, false);
+  }
+  // The horn: a honk, and the pedestrians nearby get out of the way.
+  if (actions & 64) {
+    game.audio.honk();
+    scatterPeds(game, car.x, car.y, 200);
+  }
+  // Hitting a building at speed costs speed, dents the car and sparks.
+  if (hitsBuilding(game.city, car.x, car.y, CAR.length / 2)) {
+    const hard = Math.abs(car.speed) > 200;
+    car.speed *= 0.6;
+    car.x -= Math.cos(car.angle) * 12;
+    car.y -= Math.sin(car.angle) * 12;
+    if (hard) {
+      damageCar(car, 0.09);
+      game.shake = Math.max(game.shake, 6);
+      for (let i = 0; i < 6; i += 1) {
+        const a = game.random() * Math.PI * 2;
+        game.particles.push({
+          x: car.x,
+          y: car.y,
+          vx: Math.cos(a) * 160,
+          vy: Math.sin(a) * 160,
+          life: 0.25,
+          max: 0.25,
+          color: '#ffd76b',
+          size: 4,
+        });
+      }
+    }
+    if (Math.abs(car.speed) > 200 && game.random() < dt * 6) game.audio.crash();
+  }
+  // Bump into other cars: push apart, lose speed, dent both.
+  for (const other of game.cars) {
+    if (other === car || other.dead) continue;
+    const d = Math.hypot(other.x - car.x, other.y - car.y);
+    if (d < CAR.length * 0.8 && d > 0) {
+      const push = (CAR.length * 0.8 - d) / 2;
+      const nx = (car.x - other.x) / d;
+      const ny = (car.y - other.y) / d;
+      car.x += nx * push;
+      car.y += ny * push;
+      other.x -= nx * push;
+      other.y -= ny * push;
+      car.speed *= 0.85;
+      other.speed *= 0.85;
+      if (Math.abs(car.speed) > 150) {
+        damageCar(car, 0.04);
+        damageCar(other, 0.04);
+        game.shake = Math.max(game.shake, 4);
+        game.audio.crash();
+      }
+    }
+  }
+  // Running over a pedestrian is a crime the whole street sees.
+  for (const ped of game.peds) {
+    if (ped.dead) continue;
+    if (Math.hypot(ped.x - car.x, ped.y - car.y) < 26 && Math.abs(car.speed) > 60) {
+      ped.dead = true;
+      game.crime.wanted = Math.min(5, game.crime.wanted + 1);
+      game.crime.quietTimer = 0;
+      game.crime.message = 'You hit a pedestrian — wanted level ' + game.crime.wanted;
+      game.crime.messageTimer = 4;
+      scatterPeds(game, ped.x, ped.y, 300);
+    }
+  }
+  // Marlowe Motors fixes the car while it sits by the garage.
+  if (Math.hypot(car.x - GARAGE.x, car.y - GARAGE.y) < 140 && Math.abs(car.speed) < 10) {
+    repairCar(car, 0.12 * dt);
+  }
+  if (actions & 1) exitCar(game);
+}
+
+/** Step the player on foot: walk, shoot, punch, reload, enter a car. */
+function stepOnFoot(game, input, dt, actions) {
+  const player = game.player;
+  const move = input.move();
+  const aimAngle = Math.atan2(game.aimWorld.y - player.y, game.aimWorld.x - player.x);
+  stepPlayerOnFoot(game, dt, move, input.running(), aimAngle);
+  if (input.firing()) {
+    if (playerShoot(game, game.aimWorld.x, game.aimWorld.y)) {
+      scatterPeds(game, player.x, player.y, 320);
+      if (game.crime.wanted < 1) {
+        game.crime.wanted = 1;
+        game.crime.quietTimer = 0;
+        game.crime.message = 'Shots fired — the cops are coming';
+        game.crime.messageTimer = 4;
+      }
+    }
+  }
+  if (actions & 32) playerPunch(game);
+  if (actions & 16) {
+    if (player.ammo < 12 && player.reserveAmmo > 0 && player.reloadTimer <= 0) {
+      player.reloadTimer = COMBAT.reloadSeconds;
+    }
+  }
+  if (actions & 1) {
+    const near = nearestCarToEnter(game);
+    if (near) enterCar(game, near);
+  }
+}
+
 /**
- * One fixed step of the simulation. `input` is the input device, `view` the
- * renderer's view (for turning the mouse into a world point). The screen is
- * always play here; the loop owns the menus.
+ * One fixed step of the simulation. `input` is the input device, `view`
+ * the renderer's view (for turning the mouse into a world point). The
+ * screen is always play here; the loop owns the menus.
  */
 export function stepGame(game, input, view, dt) {
   game.time += dt;
@@ -140,113 +268,9 @@ export function stepGame(game, input, view, dt) {
     startMission(game, game.missions.done);
   }
 
-  const move = input.move();
   const car = drivenCar(game);
-
-  if (car) {
-    const throttle = move.y === 0 ? 0 : -move.y;
-    const steer = move.x;
-    stepCar(car, dt, throttle, steer, input.braking());
-    player.x = car.x;
-    player.y = car.y;
-    player.angle = car.angle;
-    // Handbrake at speed: skid marks, smoke and a screech.
-    if (input.braking() && Math.abs(car.speed) > 200) {
-      game.skids.push({ x: car.x, y: car.y, angle: car.angle, life: 2.2, max: 2.2 });
-      if (game.random() < dt * 20) {
-        game.particles.push({
-          x: car.x - Math.cos(car.angle) * 30, y: car.y - Math.sin(car.angle) * 30,
-          vx: 0, vy: -20, life: 0.4, max: 0.4, color: '#9a9a9a', size: 7,
-        });
-      }
-      game.audio.skid(dt, true);
-    } else {
-      game.audio.skid(dt, false);
-    }
-    // The horn: a honk, and the pedestrians nearby get out of the way.
-    if (actions & 64) {
-      game.audio.honk();
-      scatterPeds(game, car.x, car.y, 200);
-    }
-    // Hitting a building at speed costs speed, dents the car and sparks.
-    if (hitsBuilding(game.city, car.x, car.y, CAR.length / 2)) {
-      const hard = Math.abs(car.speed) > 200;
-      car.speed *= 0.6;
-      car.x -= Math.cos(car.angle) * 12;
-      car.y -= Math.sin(car.angle) * 12;
-      if (hard) {
-        damageCar(car, 0.09);
-        game.shake = Math.max(game.shake, 6);
-        for (let i = 0; i < 6; i += 1) {
-          const a = game.random() * Math.PI * 2;
-          game.particles.push({ x: car.x, y: car.y, vx: Math.cos(a) * 160, vy: Math.sin(a) * 160, life: 0.25, max: 0.25, color: '#ffd76b', size: 4 });
-        }
-      }
-      if (Math.abs(car.speed) > 200 && game.random() < dt * 6) game.audio.crash();
-    }
-    for (const other of game.cars) {
-      if (other === car || other.dead) continue;
-      const d = Math.hypot(other.x - car.x, other.y - car.y);
-      if (d < CAR.length * 0.8 && d > 0) {
-        const push = (CAR.length * 0.8 - d) / 2;
-        const nx = (car.x - other.x) / d;
-        const ny = (car.y - other.y) / d;
-        car.x += nx * push;
-        car.y += ny * push;
-        other.x -= nx * push;
-        other.y -= ny * push;
-        car.speed *= 0.85;
-        other.speed *= 0.85;
-        if (Math.abs(car.speed) > 150) {
-          damageCar(car, 0.04);
-          damageCar(other, 0.04);
-          game.shake = Math.max(game.shake, 4);
-          game.audio.crash();
-        }
-      }
-    }
-    // Running over a pedestrian is a crime the whole street sees.
-    for (const ped of game.peds) {
-      if (ped.dead) continue;
-      if (Math.hypot(ped.x - car.x, ped.y - car.y) < 26 && Math.abs(car.speed) > 60) {
-        ped.dead = true;
-        game.crime.wanted = Math.min(5, game.crime.wanted + 1);
-        game.crime.quietTimer = 0;
-        game.crime.message = 'You hit a pedestrian — wanted level ' + game.crime.wanted;
-        game.crime.messageTimer = 4;
-        scatterPeds(game, ped.x, ped.y, 300);
-      }
-    }
-    // Marlowe Motors fixes the car while it sits by the garage.
-    if (Math.hypot(car.x - GARAGE.x, car.y - GARAGE.y) < 140 && Math.abs(car.speed) < 10) {
-      repairCar(car, 0.12 * dt);
-    }
-    if (actions & 1) exitCar(game);
-  } else {
-    const aimAngle = Math.atan2(game.aimWorld.y - player.y, game.aimWorld.x - player.x);
-    stepPlayerOnFoot(game, dt, move, input.running(), aimAngle);
-    if (input.firing()) {
-      if (playerShoot(game, game.aimWorld.x, game.aimWorld.y)) {
-        scatterPeds(game, player.x, player.y, 320);
-        if (game.crime.wanted < 1) {
-          game.crime.wanted = 1;
-          game.crime.quietTimer = 0;
-          game.crime.message = 'Shots fired — the cops are coming';
-          game.crime.messageTimer = 4;
-        }
-      }
-    }
-    if (actions & 32) playerPunch(game);
-    if (actions & 16) {
-      if (player.ammo < 12 && player.reserveAmmo > 0 && player.reloadTimer <= 0) {
-        player.reloadTimer = COMBAT.reloadSeconds;
-      }
-    }
-    if (actions & 1) {
-      const near = nearestCarToEnter(game);
-      if (near) enterCar(game, near);
-    }
-  }
+  if (car) stepDrivenCar(game, car, input, dt, actions);
+  else stepOnFoot(game, input, dt, actions);
 
   // Pickups: walk or drive over cash or ammo to collect it.
   for (const pickup of game.pickups) {
@@ -293,13 +317,13 @@ export function stepGame(game, input, view, dt) {
   if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 22);
 
   // The camera eases toward the player, looking a little ahead when driving.
-  const lookX = car ? Math.cos(car.angle) * 90 : 0;
-  const lookY = car ? Math.sin(car.angle) * 90 : 0;
+  const driven = drivenCar(game);
+  const lookX = driven ? Math.cos(driven.angle) * 90 : 0;
+  const lookY = driven ? Math.sin(driven.angle) * 90 : 0;
   camera.x += (player.x + lookX - camera.x) * Math.min(1, 5 * dt);
   camera.y += (player.y + lookY - camera.y) * Math.min(1, 5 * dt);
 
   // Audio follows the drive.
-  const driven = drivenCar(game);
   game.audio.engine(driven ? Math.min(1, Math.abs(driven.speed) / 560) : 0, !!driven);
   const policeNear = game.cars.some((c) => c.kind === 'police' && Math.hypot(c.x - player.x, c.y - player.y) < 600);
   game.audio.siren(dt, policeNear);

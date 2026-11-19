@@ -1,9 +1,9 @@
-// The law in Solmar: the wanted level, the police who answer it, and what
-// happens when they catch Dani. Crimes raise the wanted level; staying out
-// of sight while the heat cools lowers it again. Police cars chase and ram;
-// officers on foot chase and, when they corner Dani, make the arrest. At
-// four stars the department blocks the roads ahead; at five a helicopter
-// circles overhead and never loses the trail.
+// The law in Solmar: the wanted level, the police who answer it, and
+// what happens when they catch Dani. Crimes raise the wanted level;
+// staying out of sight while the heat cools lowers it again. Police cars
+// chase and ram; officers on foot chase and, when they corner Dani, make
+// the arrest. At four stars the department blocks the roads ahead; at
+// five a helicopter circles overhead and never loses the trail.
 import { CAR, MAX_OFFICERS, MAX_POLICE_CARS, WANTED, WORLD } from './config.js';
 import { makePoliceCar, stepCar } from './vehicles.js';
 import { hurtPlayer, playerCar } from './player.js';
@@ -53,7 +53,9 @@ export function coolWanted(game, dt) {
   if (crime.quietTimer >= WANTED.decaySeconds) {
     crime.wanted -= 1;
     crime.quietTimer = 0;
-    crime.message = crime.wanted === 0 ? 'You lost the cops. Heat is off.' : `Heat cooling down — wanted level ${crime.wanted}`;
+    crime.message = crime.wanted === 0
+      ? 'You lost the cops. Heat is off.'
+      : `Heat cooling down — wanted level ${crime.wanted}`;
     crime.messageTimer = 3;
   }
 }

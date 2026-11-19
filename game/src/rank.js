@@ -1,7 +1,8 @@
-// Street rank: what Solmar calls Dani, from the jobs done, the fights won,
-// the cars stolen, the fares run and the packages found. A new rank means a
-// shout from Rosa on the banner — and at Made, a gold Sunset convertible
-// appears by the marina, keys in it, because the city rewards its own.
+// Street rank: what Solmar calls Dani, from the jobs done, the fights
+// won, the cars stolen, the fares run and the packages found. A new rank
+// means a shout from Rosa on the banner — and at Made, a gold Sunset
+// convertible appears by the marina, keys in it, because the city rewards
+// its own.
 import { RANKS } from './config.js';
 import { makeCar } from './vehicles.js';
 
@@ -28,7 +29,13 @@ export function rankFor(game) {
   const current = RANKS[index];
   const next = RANKS[index + 1] || null;
   const progress = next ? (score - current.score) / (next.score - current.score) : 1;
-  return { name: current.name, index, score, next: next ? next.name : null, progress: Math.max(0, Math.min(1, progress)) };
+  return {
+    name: current.name,
+    index,
+    score,
+    next: next ? next.name : null,
+    progress: Math.max(0, Math.min(1, progress)),
+  };
 }
 
 /**
