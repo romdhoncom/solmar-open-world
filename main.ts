@@ -1,3 +1,5 @@
+// Rebuilt from scratch in the v4 recording (2026-11-19): every file under
+// game/ below was written fresh in this session from the prose spec alone.
 // Solmar for make.fun's gta6-01 (Node 22, standard library only): the
 // game is this directory's game/ folder — plain static files a desktop
 // browser loads offline (game/index.html and its ES modules, no library

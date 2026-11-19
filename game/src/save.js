@@ -1,60 +1,55 @@
-// Saving Solmar: money, finished missions, kills, fares and packages
-// found, and where the player stands, in this browser's local storage.
-// A save is written whenever a mission is finished and whenever the
-// player pauses; loading it puts the player back on the street with their
-// progress intact. Version 2 adds kills, fares and packages; a version 1
-// save still loads, with those counts starting at zero. Nothing here
-// touches the game while a screenshot scene is staged.
-import { SAVE_KEY } from './config.js';
+// Saving and loading: one localStorage key, versioned, so an older
+// save still loads. The game saves on mission completion, on a fare,
+// on a package and on a rank-up — never in the middle of a frame.
 
-/** The save record for a game state. */
-export function makeSave(game) {
-  return {
-    version: 2,
-    money: Math.floor(game.player.money),
-    missionsDone: game.missions.done,
-    playerX: Math.floor(game.player.x),
-    playerY: Math.floor(game.player.y),
-    health: Math.floor(game.player.health),
-    carsStolen: game.stats.carsStolen,
-    kills: game.stats.kills,
-    packagesFound: game.sidejobs.packagesFound,
-    faresDone: game.sidejobs.faresDone,
-    savedAt: Date.now(),
-  };
-}
+const KEY = 'solmar-save-v2';
+const OLD_KEY = 'solmar-save';
 
-export function writeSave(game) {
+/** Write the current progress. Never throws. */
+export function saveGame(G) {
   try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(makeSave(game)));
-    return true;
-  } catch {
-    return false;
+    const data = {
+      v: 2,
+      money: G.player.money,
+      missionsDone: G.missions.done,
+      kills: G.player.kills,
+      fares: G.sidejobs.faresDone,
+      packages: G.sidejobs.packages.map((p) => p.taken),
+      rankPoints: G.rank.points,
+    };
+    localStorage.setItem(KEY, JSON.stringify(data));
+  } catch (e) {
+    // Storage unavailable (a private window, say): the game still plays.
   }
 }
 
-export function readSave() {
+/** Read a save, migrating the older shape. Returns null when none. */
+export function loadGame() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (!data || (data.version !== 1 && data.version !== 2)) return null;
-    // A version 1 save has no kills, fares or packages: start those at zero.
-    if (data.version === 1) {
-      data.kills = 0;
-      data.packagesFound = 0;
-      data.faresDone = 0;
-    }
-    return data;
-  } catch {
+    const d = JSON.parse(raw);
+    if (typeof d.money !== 'number') return null;
+    return {
+      money: d.money,
+      missionsDone: d.missionsDone || 0,
+      kills: d.kills || 0,
+      fares: d.fares || 0,
+      packages: Array.isArray(d.packages) ? d.packages : [],
+      rankPoints: d.rankPoints || 0,
+      version: d.v || 1,
+    };
+  } catch (e) {
     return null;
   }
 }
 
+/** Forget the save entirely (a fresh start after the finale). */
 export function clearSave() {
   try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch {
-    // Storage can be off: there is then nothing to clear.
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(OLD_KEY);
+  } catch (e) {
+    // Nothing to forget.
   }
 }

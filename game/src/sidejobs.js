@@ -1,113 +1,111 @@
-// Side jobs, for the hours between story missions: taxi fares and hidden
-// packages. A fare appears when Dani is driving with no job running —
-// pick the passenger up, beat the clock to their stop, and the meter pays
-// out with a tip for speed. Twelve gold packages are hidden around
-// Solmar; finding them all pays a bonus on top.
-import { MONEY, TAXI } from './config.js';
-import { roadPointNear } from './world.js';
+// Side jobs: repeatable taxi fares and the twelve hidden packages.
+// Fares appear while the player is driving; packages sit in fixed,
+// findable spots around the city and pay a bonus when all are found.
 
-/** A fresh side-job record: no fare running, packages hidden. */
-export function makeSideJobs(game) {
-  const packages = [];
-  for (let i = 0; i < MONEY.packageCount; i += 1) {
-    const point = roadPointNear(game.random, 1600, 1200, 0);
-    packages.push({
-      x: point.x + (game.random() - 0.5) * 160,
-      y: point.y + (game.random() - 0.5) * 160,
-      taken: false,
-    });
-  }
+import { SIDEJOBS } from './config.js';
+import { roadPointNear, hitsBuilding } from './world.js';
+import { addRankPoints } from './rank.js';
+import { saveGame } from './save.js';
+
+export function createSidejobs() {
   return {
+    packages: [],
+    collected: 0,
+    bonusPaid: false,
     fare: null,
-    cooldown: 8,
-    packages,
-    packagesFound: 0,
+    fareCooldown: 0,
     faresDone: 0,
   };
 }
 
-/** Start a fare right now (the screenshot scenes use this). */
-export function startFare(game, pickup, dest, timeLimit) {
-  game.sidejobs.fare = {
-    stage: 0,
-    pickup: { x: pickup.x, y: pickup.y },
-    dest: { x: dest.x, y: dest.y },
-    timeLeft: timeLimit,
-    timeLimit,
-  };
-  game.missions.banner = 'Fare on the meter — pick them up.';
-  game.missions.bannerTimer = 4;
-}
-
-/** The objective line the HUD shows while a fare is running. */
-export function fareObjective(game) {
-  const fare = game.sidejobs.fare;
-  if (!fare) return '';
-  if (fare.stage === 0) return 'Fare waiting — pick up the passenger.';
-  return `Fare aboard — deliver them before the clock runs out (${Math.ceil(fare.timeLeft)}s).`;
-}
-
-/** Advance fares and packages by dt. */
-export function stepSideJobs(game, dt) {
-  const jobs = game.sidejobs;
-  const player = game.player;
-  if (jobs.cooldown > 0) jobs.cooldown -= dt;
-
-  // Offer a fare: driving, no story job, no fare already running.
-  if (!jobs.fare && !game.missions.active && player.inCar && jobs.cooldown <= 0) {
-    const pickup = roadPointNear(game.random, player.x, player.y, 450);
-    const dest = roadPointNear(game.random, pickup.x, pickup.y, 700);
-    startFare(game, pickup, dest, TAXI.fareSeconds);
-    game.audio.fare();
+/** Scatter the twelve packages: beach, pier, parks, alleys, marina. */
+export function initPackages(G) {
+  const spots = [];
+  // Beach and pier.
+  spots.push({ x: 900, y: 3300 });
+  spots.push({ x: 1900, y: 3340 });
+  spots.push({ x: 3800, y: 3280 });
+  spots.push({ x: 3100, y: 3400 });
+  // Parks and the plaza.
+  spots.push({ x: 2600, y: 2000 });
+  // Alleys: points inside blocks, clear of buildings.
+  const tries = [
+    { x: 1000, y: 800 }, { x: 1800, y: 1400 }, { x: 2600, y: 800 },
+    { x: 3400, y: 1400 }, { x: 1000, y: 2600 }, { x: 3400, y: 2600 },
+    { x: 4300, y: 1550 }, { x: 1800, y: 2600 },
+  ];
+  for (const t of tries) {
+    if (!hitsBuilding(G.city, t.x, t.y, 30)) spots.push(t);
   }
+  // Fill any shortfall with park centres, so there are always twelve.
+  let pi = 0;
+  while (spots.length < SIDEJOBS.packageCount && pi < G.city.parks.length) {
+    const park = G.city.parks[pi];
+    pi += 1;
+    const spot = { x: park.x + park.width / 2, y: park.y + park.height / 2 };
+    if (!spots.some((s) => Math.hypot(s.x - spot.x, s.y - spot.y) < 120)) spots.push(spot);
+  }
+  G.sidejobs.packages = spots.slice(0, SIDEJOBS.packageCount).map((s) => ({
+    x: s.x, y: s.y, taken: false,
+  }));
+}
 
-  const fare = jobs.fare;
-  if (fare) {
-    if (fare.stage === 0) {
-      if (Math.hypot(player.x - fare.pickup.x, player.y - fare.pickup.y) < TAXI.pickupRadius) {
-        fare.stage = 1;
-        game.missions.banner = 'Passenger aboard — go!';
-        game.missions.bannerTimer = 3;
+export function updateSidejobs(G, dt) {
+  const sj = G.sidejobs;
+  const p = G.player;
+
+  // Picking up a package: walk or drive over it.
+  for (const pkg of sj.packages) {
+    if (!pkg.taken && Math.hypot(pkg.x - p.x, pkg.y - p.y) < 42) {
+      pkg.taken = true;
+      sj.collected += 1;
+      p.money += SIDEJOBS.packagePay;
+      addRankPoints(G, 3);
+      G.audio.chime();
+      if (sj.collected >= SIDEJOBS.packageCount && !sj.bonusPaid) {
+        sj.bonusPaid = true;
+        p.money += SIDEJOBS.packageBonus;
+        G.audio.fanfare();
       }
-    } else {
-      fare.timeLeft -= dt;
-      if (fare.timeLeft <= 0) {
-        jobs.fare = null;
-        jobs.cooldown = TAXI.cooldownSeconds;
-        game.missions.banner = 'The fare gave up and walked off.';
-        game.missions.bannerTimer = 4;
-      } else if (Math.hypot(player.x - fare.dest.x, player.y - fare.dest.y) < TAXI.destRadius) {
-        const tip = Math.round((MONEY.fareTipMax * fare.timeLeft) / fare.timeLimit);
-        const pay = MONEY.fareBase + tip;
-        player.money += pay;
-        jobs.faresDone += 1;
-        game.stats.faresDone = jobs.faresDone;
-        jobs.fare = null;
-        jobs.cooldown = TAXI.cooldownSeconds;
-        game.missions.banner = `Fare paid — $${pay} ($${MONEY.fareBase} + $${tip} tip).`;
-        game.missions.bannerTimer = 4;
-        game.audio.cash();
-      }
+      saveGame(G);
     }
   }
 
-  // Packages: walk or drive over one to collect it.
-  for (const pack of jobs.packages) {
-    if (pack.taken) continue;
-    if (Math.hypot(pack.x - player.x, pack.y - player.y) < 34) {
-      pack.taken = true;
-      jobs.packagesFound += 1;
-      player.money += MONEY.packageAmount;
-      game.audio.pickup();
-      if (jobs.packagesFound >= MONEY.packageCount) {
-        player.money += MONEY.packageBonus;
-        game.missions.banner = `All ${MONEY.packageCount} packages found — $${MONEY.packageBonus} bonus!`;
-        game.missions.bannerTimer = 5;
-        game.audio.missionDone();
-      } else {
-        game.missions.banner = `Package ${jobs.packagesFound} of ${MONEY.packageCount} — $${MONEY.packageAmount}.`;
-        game.missions.bannerTimer = 3;
+  // A fare appears once the player is driving and the last one cooled off.
+  sj.fareCooldown = Math.max(0, sj.fareCooldown - dt);
+  if (!sj.fare && p.car && sj.fareCooldown <= 0 && G.missions.index >= 4) {
+    const pickup = roadPointNear(G.rng, p.x, p.y, 350);
+    sj.fare = { stage: 'pickup', pickup, dest: null, timer: 0 };
+  }
+  if (sj.fare) {
+    const fare = sj.fare;
+    if (fare.stage === 'pickup') {
+      if (p.car && Math.hypot(p.car.x - fare.pickup.x, p.car.y - fare.pickup.y) < 70) {
+        fare.stage = 'drive';
+        fare.dest = roadPointNear(G.rng, p.x, p.y, 700);
+        fare.timer = 75;
+        G.audio.chime();
       }
+    } else {
+      fare.timer -= dt;
+      if (fare.timer <= 0) {
+        sj.fare = null;
+        sj.fareCooldown = SIDEJOBS.fareCooldown;
+      } else if (p.car && Math.hypot(p.car.x - fare.dest.x, p.car.y - fare.dest.y) < 80) {
+        const tip = Math.ceil(fare.timer) * SIDEJOBS.fareTipPerSecond;
+        p.money += SIDEJOBS.farePay + tip;
+        sj.faresDone += 1;
+        addRankPoints(G, 5);
+        G.audio.chime();
+        sj.fare = null;
+        sj.fareCooldown = SIDEJOBS.fareCooldown;
+        saveGame(G);
+      }
+    }
+    // A fare is lost if the player gets out of the car mid-job.
+    if (sj.fare && !p.car) {
+      sj.fare = null;
+      sj.fareCooldown = SIDEJOBS.fareCooldown;
     }
   }
 }

@@ -1,181 +1,110 @@
-// Solmar's tuning, all in one place.
-//
-// The world is a fixed logical map, 3200 by 2400, and the renderer scales
-// the 1280 by 720 view to the window. Nothing below depends on the screen,
-// so the same numbers run the game at any window size.
+// Solmar tuning: every number the game runs on lives in this one file,
+// so a balance change never means hunting through the other modules.
 
-export const VIEW = {
-  width: 1280,
-  height: 720,
-};
+export const SEED = 1337;
 
-export const WORLD = {
-  width: 3200,
-  height: 2400,
-};
+export const WORLD = { width: 4800, height: 3600 };
 
-// Avenues run north-south, streets east-west. Each road is 120 wide and
-// the lists hold its centre line.
 export const ROADS = {
-  width: 120,
-  vertical: [240, 720, 1200, 1680, 2160, 2640],
-  horizontal: [220, 620, 1020, 1420, 1820, 2120],
+  vertical: [600, 1400, 2200, 3000, 3800],
+  horizontal: [500, 1100, 1700, 2300, 2900],
+  width: 96,
 };
 
-// The beach runs along the south edge; the harbour basin sits on the east.
 export const BEACH = {
-  y: 2240,
-  sand: '#e8cf9a',
-  water: '#2e7fa8',
-  deep: '#1d5c7d',
+  y: 3200,
+  sand: '#e8c98f',
+  water: '#54a9c9',
+  deep: '#2f7ea8',
 };
 
-export const HARBOUR = {
-  x: 2940,
-  y: 1380,
-  width: 260,
-  height: 420,
+export const HARBOUR = { x: 4200, y: 400, width: 600, height: 1000 };
+
+export const PALETTE = {
+  grass: '#8fae5e',
+  park: '#6f9a4e',
+  road: '#4a4a52',
+  roadEdge: '#d8d2c0',
+  lane: '#e8e2c8',
+  water: '#54a9c9',
+  boardwalk: '#c9a06b',
 };
 
-// The fountain square, in the block between the 3rd and 4th Avenues.
-export const PLAZA = {
-  x: 1440,
-  y: 1220,
+// Named places the missions, the HUD and the screenshots point at.
+// All of them sit on or just beside a road, so a car can reach them.
+export const LANDMARKS = {
+  garage: { x: 1400, y: 1180, name: 'Marlowe Motors' },
+  bank: { x: 2200, y: 470, name: 'Solmar Bank' },
+  hideout: { x: 600, y: 2380, name: 'Hideout' },
+  docks: { x: 4150, y: 900, name: 'The Docks' },
+  fountain: { x: 2600, y: 2000, name: 'Plaza Fountain' },
+  marina: { x: 4250, y: 1550, name: 'Marina' },
+  boardwalk: { x: 2200, y: 3180, name: 'Boardwalk' },
+  pier: { x: 3100, y: 3350, name: 'Pier' },
 };
-
-export const STEP = 1 / 60;
 
 export const PLAYER = {
+  speed: 230,
   radius: 14,
-  walkSpeed: 230,
-  runSpeed: 340,
-  health: 100,
-  punchDamage: 18,
-  punchRange: 46,
-  punchInterval: 0.45,
+  hp: 100,
+  startMoney: 150,
+  ammoMax: 60,
+  startAmmo: 24,
+  punchDamage: 25,
+  punchRange: 48,
+  punchCooldown: 0.45,
+  bulletDamage: 34,
+  fireCooldown: 0.22,
+  bulletSpeed: 720,
 };
 
-export const CAR = {
-  length: 64,
-  width: 30,
+export const DRIVING = {
+  // Top speeds are in world units per second; handling is 0..1.
   accel: 420,
   brake: 700,
   reverseAccel: 260,
-  maxSpeed: 560,
-  maxReverse: 180,
+  drag: 0.55,
+  grip: 6.5,
   turnRate: 2.6,
-  grip: 3.2,
-  handbrakeGrip: 0.9,
-  // How much top speed a fully wrecked car loses.
-  damageSlow: 0.45,
+  skidSpeed: 420,
+  crashDamage: 14,
 };
 
-// The cars of Solmar: name, paint, and multipliers for top speed and
-// acceleration. The first six are everyday cars; the last three are rarer
-// and show up in the richer districts, the marina and the hills.
-export const CAR_MODELS = [
-  { name: 'Pinto', color: '#c94f3d', top: 0.82, accel: 0.9 },
-  { name: 'Comet', color: '#3d7ac9', top: 1.0, accel: 1.0 },
-  { name: 'Vagabond', color: '#e8b93c', top: 0.9, accel: 0.95 },
-  { name: 'Strider', color: '#7a4fc9', top: 1.12, accel: 1.1 },
-  { name: 'Marlin', color: '#2fae8a', top: 1.05, accel: 1.0 },
-  { name: 'Dune Buggy', color: '#d97b2f', top: 0.95, accel: 1.05 },
-  { name: 'Falcon', color: '#e8e3d0', top: 1.18, accel: 1.12 },
-  { name: 'Hauler', color: '#5a6b3a', top: 0.78, accel: 0.85 },
-  { name: 'Sunset', color: '#f27bb1', top: 1.08, accel: 1.05 },
+export const WANTED = {
+  max: 5,
+  // Cruisers on the street per star level.
+  cruisers: [0, 1, 2, 3, 4, 4],
+  // Seconds out of every cruiser's sight before a star drops.
+  decaySeconds: 10,
+  sightRange: 520,
+  // How close a cruiser has to get before it starts shooting on foot.
+  shootRange: 340,
+  shootCooldown: 1.1,
+};
+
+export const RANKS = [
+  { name: 'Street Rat', points: 0 },
+  { name: 'Wheelman', points: 60 },
+  { name: 'Hustler', points: 150 },
+  { name: 'Made', points: 300 },
+  { name: 'King of Solmar', points: 600 },
 ];
 
-export const POLICE_COLOR = '#20242e';
-export const POLICE_LIGHT_A = '#e33f2f';
-export const POLICE_LIGHT_B = '#2f6fe3';
+// Pay per story mission, in the order the missions run.
+export const MISSION_PAY = [200, 300, 400, 500, 250, 600, 800, 1500, 3000];
+
+// Rank points per story mission, in the same order.
+export const MISSION_POINTS = [20, 25, 30, 35, 40, 45, 50, 60, 100];
+
+export const SIDEJOBS = {
+  packageCount: 12,
+  packagePay: 50,
+  packageBonus: 500,
+  farePay: 80,
+  fareTipPerSecond: 2,
+  fareCooldown: 12,
+};
 
 export const TRAFFIC_COUNT = 30;
 export const PED_COUNT = 48;
-export const MAX_POLICE_CARS = 5;
-export const MAX_OFFICERS = 6;
-
-export const WANTED = {
-  decaySeconds: 26,
-  bustDistance: 46,
-  bustSeconds: 2.5,
-  finePerStar: 200,
-  max: 5,
-  roadblockAt: 4,
-  heliAt: 5,
-};
-
-export const COMBAT = {
-  bulletSpeed: 900,
-  bulletDamage: 34,
-  fireInterval: 0.22,
-  magazine: 12,
-  reloadSeconds: 1.1,
-  enemyHealth: 70,
-  enemyDamage: 9,
-  enemyRange: 420,
-  enemyFireInterval: 0.9,
-  bruteHealth: 170,
-  bruteDamage: 16,
-  bruteRange: 380,
-  bruteFireInterval: 1.3,
-  runnerHealth: 50,
-  runnerDamage: 6,
-  runnerRange: 340,
-  runnerFireInterval: 0.6,
-};
-
-export const MONEY = {
-  start: 150,
-  // Nine story jobs, in order.
-  missionReward: [200, 350, 600, 800, 500, 700, 900, 2500, 5000],
-  pickup: 25,
-  hospitalLoss: 0.1,
-  fareBase: 60,
-  fareTipMax: 40,
-  packageAmount: 50,
-  packageBonus: 500,
-  packageCount: 12,
-  ammoPickup: 24,
-};
-
-// Street rank: a score from jobs, fights, thefts and finds. Each new rank
-// is announced, and the HUD shows how far the next one is.
-export const RANKS = [
-  { score: 0, name: 'Street Rat' },
-  { score: 100, name: 'Wheelman' },
-  { score: 250, name: 'Hustler' },
-  { score: 500, name: 'Made' },
-  { score: 1000, name: 'King of Solmar' },
-];
-
-// Taxi fares: one at a time, a passenger to fetch, a clock to beat.
-export const TAXI = {
-  fareSeconds: 80,
-  pickupRadius: 90,
-  destRadius: 100,
-  cooldownSeconds: 18,
-};
-
-export const SAVE_KEY = 'solmar.save.v2';
-
-export const PALETTE = {
-  grass: '#7fae62',
-  park: '#5d9b4a',
-  sidewalk: '#b9b3a4',
-  road: '#3a3f47',
-  roadEdge: '#2c3038',
-  lane: '#e8e3c8',
-  sand: '#e8cf9a',
-  water: '#2e7fa8',
-  text: '#f4f1e6',
-  muted: '#c9c4b2',
-  gold: '#f2c94c',
-  red: '#e5534b',
-  blue: '#4f8ff7',
-  green: '#58b368',
-  panel: 'rgba(12, 16, 24, 0.78)',
-  panelEdge: 'rgba(244, 241, 230, 0.25)',
-};
-
-export const FONT = '"Trebuchet MS", "Segoe UI", system-ui, sans-serif';
-export const FONT_DISPLAY = '"Arial Black", "Trebuchet MS", sans-serif';
+export const PARKED_COUNT = 14;

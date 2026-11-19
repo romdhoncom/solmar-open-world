@@ -1,359 +1,289 @@
-// Solmar's story: nine jobs for Dani Vega, fresh off the bus with $150
-// and a phone number for Rosa Marlowe, who runs Marlowe Motors. Each
-// mission is a small state machine: a target to reach, a thing to do
-// there, and a payout when it is done. Finishing one starts the next;
-// finishing all nine makes Dani the King of Solmar. One job is timed —
-// miss the clock and the fare walks away, and the job can be tried again.
-import { MONEY, TAXI } from './config.js';
-import { spawnEnemy } from './combat.js';
-import { addWanted } from './police.js';
-import { makeCar } from './vehicles.js';
-import { playerCar } from './player.js';
+// The nine story missions. Each mission is a small state machine:
+// it starts, it watches for its objective, and it ends in success or
+// failure. The manager owns which mission is current, the timer for
+// timed missions, and the banner the HUD shows when one starts.
 
-export const GARAGE = { x: 1200, y: 1000 };
-export const BANK = { x: 1680, y: 1420 };
-export const DOCKS = { x: 2880, y: 1560 };
-export const MOTEL = { x: 620, y: 2180 };
-export const HIDEOUT = { x: 260, y: 240 };
-export const BOARDWALK = { x: 1560, y: 2310 };
-export const MARINA = { x: 2880, y: 1560 };
-export const PLAZA_POINT = { x: 1440, y: 1220 };
+import { LANDMARKS, MISSION_PAY, MISSION_POINTS } from './config.js';
+import { addWanted, clearWanted } from './police.js';
+import { makeCar, CAR_MODELS } from './vehicles.js';
+import { fireBullet } from './combat.js';
+import { roadPointNear } from './world.js';
+import { addRankPoints } from './rank.js';
+import { saveGame } from './save.js';
 
-export const COURIER_STOPS = [
-  { x: 720, y: 620, label: 'North Market' },
-  { x: 2160, y: 1820, label: 'East Flats' },
-  { x: 2640, y: 220, label: 'Hilltop' },
+export const MISSION_NAMES = [
+  'New in Town',
+  'Borrowed Wheels',
+  'The Drop',
+  'Breakers on the Boardwalk',
+  'Taxi for Rosa',
+  'The Courier Run',
+  'Harbour Lights',
+  'The Solmar Score',
+  'King of Solmar',
 ];
 
-export const MISSION_DEFS = [
-  {
-    title: 'New in Town',
-    brief: 'Rosa Marlowe runs the garage on 3rd Avenue. Go and meet her — she has work for a driver who asks no questions.',
-    target: GARAGE,
-    targetLabel: 'Marlowe Motors',
-  },
-  {
-    title: 'Borrowed Wheels',
-    brief: 'Rosa needs a Comet for a client who pays cash and never checks the plates. Take any car on the street — press E beside one — and bring it to the garage.',
-    target: GARAGE,
-    targetLabel: 'Marlowe Motors',
-  },
-  {
-    title: 'The Drop',
-    brief: 'A package is waiting at the docks. Pick it up, then run it to the Sunset Motel on the beach. The cops are watching the docks — keep it quiet.',
-    target: DOCKS,
-    targetLabel: 'The Docks',
-  },
-  {
-    title: 'Breakers on the Boardwalk',
-    brief: 'The Breakers are shaking down Rosa’s friends on the boardwalk. Go down there and settle it. They will not talk first.',
-    target: BOARDWALK,
-    targetLabel: 'The Boardwalk',
-  },
-  {
-    title: 'Taxi for Rosa',
-    brief: 'Rosa’s best cabbie called in sick. Pick up the fare waiting at the plaza and get them to the marina — the meter is running and the clock is not kind.',
-    target: PLAZA_POINT,
-    targetLabel: 'The Plaza',
-  },
-  {
-    title: 'The Courier Run',
-    brief: 'Three parcels, three corners of Solmar, one afternoon. North Market, then East Flats, then the Hilltop. Rosa trusts you with the route — don’t trust the traffic.',
-    target: COURIER_STOPS[0],
-    targetLabel: 'North Market',
-  },
-  {
-    title: 'Harbour Lights',
-    brief: 'A gold Strider sits by the harbour pier, and its owner is not the careful type. The Breakers posted two runners to watch it. Take the car and bring it home to the garage.',
-    target: MARINA,
-    targetLabel: 'The Marina',
-  },
-  {
-    title: 'The Solmar Score',
-    brief: 'The big one. Hold up Solmar National Bank, then lose the heat and get to the hideout up north. Rosa says the vault is worth $2,500 to us.',
-    target: BANK,
-    targetLabel: 'Solmar National Bank',
-  },
-  {
-    title: 'King of Solmar',
-    brief: 'Marco Vane, the Breakers’ boss, is holding court at the docks with his whole crew. End it there — then shake five stars of heat and reach the hideout. After tonight, Solmar is yours.',
-    target: DOCKS,
-    targetLabel: 'The Docks',
-  },
-];
-
-export const MISSION_COUNT = MISSION_DEFS.length;
-
-/** A fresh mission record: no job started, nothing finished. */
-export function makeMissions() {
+export function createMissions() {
   return {
-    done: 0,
-    active: false,
     index: 0,
-    stage: 0,
+    stage: 'go',
     timer: 0,
-    timeLeft: 0,
-    timeLimit: 0,
-    target: null,
-    targetLabel: '',
-    text: '',
-    banner: '',
-    bannerTimer: 0,
-    stealCarId: 0,
+    timerMax: 0,
+    data: {},
+    banner: null,
+    bannerUntil: 0,
+    done: 0,
   };
 }
 
-/** Start mission `index` (0-based) and set its first target. */
-export function startMission(game, index) {
-  const def = MISSION_DEFS[index];
-  const missions = game.missions;
-  missions.active = true;
-  missions.index = index;
-  missions.stage = 0;
-  missions.timer = 0;
-  missions.timeLeft = 0;
-  missions.timeLimit = 0;
-  missions.target = { x: def.target.x, y: def.target.y };
-  missions.targetLabel = def.targetLabel;
-  missions.text = def.brief;
-  missions.banner = `Mission ${index + 1}: ${def.title}`;
-  missions.bannerTimer = 4;
-  missions.stealCarId = 0;
-  game.audio.missionDone();
+/** Show a banner: the mission name, big, for a few seconds. */
+export function showBanner(G, title, sub) {
+  G.missions.banner = { title, sub };
+  G.missions.bannerUntil = G.time + 3.2;
 }
 
-/** The objective line the HUD shows for the active mission. */
-export function objectiveText(game) {
-  const missions = game.missions;
-  if (!missions.active) {
-    if (missions.done >= MISSION_DEFS.length) return 'Story complete — Solmar is yours. Free roam: fares, packages, cars, cops.';
-    return 'Press Enter to start the next job.';
+/** Start mission `i` from its beginning. */
+export function startMission(G, i) {
+  const m = G.missions;
+  m.index = i;
+  m.stage = 'go';
+  m.timer = 0;
+  m.timerMax = 0;
+  m.data = {};
+  G.crew = [];
+  if (i === 0) {
+    showBanner(G, 'Mission 1: New in Town', 'Walk to Marlowe Motors and meet the contact.');
+  } else if (i === 1) {
+    showBanner(G, 'Mission 2: Borrowed Wheels', 'Steal any car and bring it to the garage.');
+  } else if (i === 2) {
+    m.stage = 'pickup';
+    m.data.pickup = roadPointNear(G.rng, G.player.x, G.player.y, 500);
+    showBanner(G, 'Mission 3: The Drop', 'Pick up the package, then deliver it on time.');
+  } else if (i === 3) {
+    m.stage = 'fight';
+    spawnCrew(G, LANDMARKS.boardwalk.x, LANDMARKS.boardwalk.y, 5);
+    showBanner(G, 'Mission 4: Breakers on the Boardwalk', 'Fight off the rival crew on the beach.');
+  } else if (i === 4) {
+    m.stage = 'pickup';
+    m.data.rosa = roadPointNear(G.rng, G.player.x, G.player.y, 400);
+    showBanner(G, 'Mission 5: Taxi for Rosa', 'Pick Rosa up in a car and drive her across town.');
+  } else if (i === 5) {
+    m.stage = 'run';
+    m.data.stops = [
+      roadPointNear(G.rng, G.player.x, G.player.y, 600),
+      roadPointNear(G.rng, G.player.x, G.player.y, 600),
+      roadPointNear(G.rng, G.player.x, G.player.y, 600),
+    ];
+    m.data.visited = [false, false, false];
+    m.timer = 90;
+    m.timerMax = 90;
+    showBanner(G, 'Mission 6: The Courier Run', 'Three stops, any order, against the clock.');
+  } else if (i === 6) {
+    m.stage = 'steal';
+    const model = CAR_MODELS.find((c) => c.name === 'Strider');
+    const gold = makeCar(model, 4150, 700, Math.PI / 2, 'parked');
+    gold.gold = true;
+    G.cars.push(gold);
+    m.data.goldCar = gold;
+    showBanner(G, 'Mission 7: Harbour Lights', 'Steal the gold Strider and bring it to the hideout.');
+  } else if (i === 7) {
+    m.stage = 'bank';
+    m.holdup = 0;
+    showBanner(G, 'Mission 8: The Solmar Score', 'Hold up the bank, then escape the chase.');
+  } else if (i === 8) {
+    m.stage = 'fight';
+    spawnCrew(G, LANDMARKS.docks.x, LANDMARKS.docks.y, 6);
+    showBanner(G, 'Mission 9: King of Solmar', 'Take down Marco Vane\u2019s crew on the docks.');
   }
-  const def = MISSION_DEFS[missions.index];
-  if (missions.index === 1 && missions.stage === 0) return 'Steal a car — press E beside any car on the street.';
-  if (missions.index === 1 && missions.stage === 1) return 'Bring the car to Marlowe Motors.';
-  if (missions.index === 2 && missions.stage === 1) return 'Deliver the package to the Sunset Motel.';
-  if (missions.index === 3 && missions.stage === 1) return `Deal with the Breakers — ${game.enemies.length} left.`;
-  if (missions.index === 4 && missions.stage === 0) return 'Pick up the fare at the plaza.';
-  if (missions.index === 4 && missions.stage === 1) return 'Get the fare to the marina — beat the clock!';
-  if (missions.index === 5) {
-    const stop = COURIER_STOPS[missions.stage];
-    return `Courier stop ${missions.stage + 1} of 3 — ${stop.label}.`;
-  }
-  if (missions.index === 6 && missions.stage === 0) return 'Reach the marina — the gold Strider is by the pier.';
-  if (missions.index === 6 && missions.stage === 1) return 'Take the Strider — the runners will not like it.';
-  if (missions.index === 6 && missions.stage === 2) return 'Bring the Strider to Marlowe Motors.';
-  if (missions.index === 7 && missions.stage === 1) return 'Hold up the bank — stay inside the marker.';
-  if (missions.index === 7 && missions.stage === 2) return 'Lose the cops and reach the hideout up north.';
-  if (missions.index === 8 && missions.stage === 1) return `End Marco Vane’s crew — ${game.enemies.length} left.`;
-  if (missions.index === 8 && missions.stage === 2) return 'Lose five stars of heat and reach the hideout.';
-  return `Go to ${missions.targetLabel}.`;
 }
 
-/** Pay out a finished mission and queue the next one. */
-function finishMission(game) {
-  const missions = game.missions;
-  const reward = MONEY.missionReward[missions.index];
-  game.player.money += reward;
-  missions.done += 1;
-  missions.active = false;
-  missions.stage = 0;
-  missions.timeLeft = 0;
-  missions.timeLimit = 0;
-  missions.banner = `Job done — $${reward} earned.`;
-  missions.bannerTimer = 4;
-  game.audio.missionDone();
-  game.stats.missionsDone = missions.done;
-  return reward;
+/** Place `n` rival crew members around (x, y). */
+export function spawnCrew(G, x, y, n) {
+  G.crew = [];
+  for (let i = 0; i < n; i += 1) {
+    const angle = (i / n) * Math.PI * 2;
+    G.crew.push({
+      x: x + Math.cos(angle) * (60 + i * 18),
+      y: y + Math.sin(angle) * (60 + i * 18),
+      hp: 60,
+      angle: 0,
+      shootTimer: 1 + i * 0.4,
+      alive: true,
+    });
+  }
 }
 
-/** Fail a timed mission: the job stays open and can be tried again. */
-function failMission(game, reason) {
-  const missions = game.missions;
-  missions.active = false;
-  missions.stage = 0;
-  missions.timeLeft = 0;
-  missions.timeLimit = 0;
-  missions.banner = reason;
-  missions.bannerTimer = 4;
+/** Crew members walk at the player and shoot when close enough. */
+export function updateCrew(G, dt) {
+  const p = G.player;
+  for (const foe of G.crew) {
+    if (!foe.alive) continue;
+    const dx = p.x - foe.x;
+    const dy = p.y - foe.y;
+    const dist = Math.hypot(dx, dy);
+    foe.angle = Math.atan2(dy, dx);
+    if (dist > 120) {
+      foe.x += Math.cos(foe.angle) * 95 * dt;
+      foe.y += Math.sin(foe.angle) * 95 * dt;
+    }
+    foe.shootTimer -= dt;
+    if (dist < 320 && foe.shootTimer <= 0) {
+      foe.shootTimer = 1.5;
+      fireBullet(G, foe.x, foe.y, foe.angle, 'enemy', 12);
+    }
+  }
 }
 
-/** True when the player (on foot or in a car) is within reach of the target. */
-function atTarget(game, radius) {
-  const player = game.player;
-  const target = game.missions.target;
-  return Math.hypot(player.x - target.x, player.y - target.y) < radius;
+function near(x1, y1, x2, y2, r) {
+  return Math.hypot(x1 - x2, y1 - y2) <= r;
 }
 
-/** Advance the active mission by dt, watching its objectives. */
-export function stepMissions(game, dt) {
-  const missions = game.missions;
-  if (missions.bannerTimer > 0) missions.bannerTimer -= dt;
-  if (!missions.active) return;
-  const player = game.player;
-  const index = missions.index;
+function completeMission(G) {
+  const m = G.missions;
+  const i = m.index;
+  const pay = MISSION_PAY[i];
+  G.player.money += pay;
+  addRankPoints(G, MISSION_POINTS[i]);
+  m.done += 1;
+  G.crew = [];
+  clearWanted(G);
+  saveGame(G);
+  if (i >= 8) {
+    G.mode = 'complete';
+    G.audio.fanfare();
+    return;
+  }
+  showBanner(G, `Mission ${i + 1} complete`, `+$${pay} — next: ${MISSION_NAMES[i + 1]}`);
+  startMission(G, i + 1);
+}
 
-  if (index === 0) {
-    if (atTarget(game, 90)) finishMission(game);
-    return;
+function failMission(G, why) {
+  showBanner(G, 'Mission failed', why);
+  startMission(G, G.missions.index);
+}
+
+export function updateMissions(G, dt) {
+  const m = G.missions;
+  const p = G.player;
+  if (m.timer > 0) {
+    m.timer -= dt;
+    if (m.timer <= 0) {
+      m.timer = 0;
+      failMission(G, 'Out of time — try it again.');
+      return;
+    }
   }
-  if (index === 1) {
-    if (missions.stage === 0) {
-      if (player.inCar) {
-        missions.stage = 1;
-        missions.text = 'Bring the car to Marlowe Motors.';
+  const i = m.index;
+  if (i === 0) {
+    if (near(p.x, p.y, LANDMARKS.garage.x, LANDMARKS.garage.y, 70)) completeMission(G);
+  } else if (i === 1) {
+    if (p.car && near(p.car.x, p.car.y, LANDMARKS.garage.x, LANDMARKS.garage.y, 90)) completeMission(G);
+  } else if (i === 2) {
+    if (m.stage === 'pickup') {
+      if (near(p.x, p.y, m.data.pickup.x, m.data.pickup.y, 60)) {
+        m.stage = 'deliver';
+        m.data.dest = roadPointNear(G.rng, p.x, p.y, 900);
+        m.timer = 75;
+        m.timerMax = 75;
+        showBanner(G, 'Package collected', 'Deliver it to the marked address — fast.');
       }
-      return;
+    } else if (near(p.x, p.y, m.data.dest.x, m.data.dest.y, 70)) {
+      completeMission(G);
     }
-    if (atTarget(game, 110) && player.inCar) finishMission(game);
-    return;
-  }
-  if (index === 2) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 90)) {
-        missions.stage = 1;
-        missions.target = { x: MOTEL.x, y: MOTEL.y };
-        missions.targetLabel = 'Sunset Motel';
-        missions.text = 'Deliver the package to the Sunset Motel.';
-        addWanted(game, 1, 'Spotted at the docks');
+  } else if (i === 3) {
+    if (G.crew.length > 0 && G.crew.every((f) => !f.alive)) completeMission(G);
+  } else if (i === 4) {
+    if (m.stage === 'pickup') {
+      if (p.car && near(p.car.x, p.car.y, m.data.rosa.x, m.data.rosa.y, 70)) {
+        m.stage = 'drive';
+        m.data.dest = roadPointNear(G.rng, p.x, p.y, 1000);
+        m.timer = 60;
+        m.timerMax = 60;
+        showBanner(G, 'Rosa is in', 'Drive her to the destination before the clock runs out.');
       }
-      return;
+    } else if (p.car && near(p.car.x, p.car.y, m.data.dest.x, m.data.dest.y, 80)) {
+      const tip = Math.ceil(m.timer) * 2;
+      p.money += tip;
+      showBanner(G, 'Rosa dropped off', `Tip: $${tip} for speed.`);
+      completeMission(G);
     }
-    if (atTarget(game, 90)) finishMission(game);
-    return;
-  }
-  if (index === 3) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 160)) {
-        missions.stage = 1;
-        missions.text = 'Deal with the Breakers.';
-        spawnEnemy(game, BOARDWALK.x - 160, BOARDWALK.y - 50, 'breaker');
-        spawnEnemy(game, BOARDWALK.x - 80, BOARDWALK.y, 'breaker');
-        spawnEnemy(game, BOARDWALK.x, BOARDWALK.y - 50, 'breaker');
-        spawnEnemy(game, BOARDWALK.x + 80, BOARDWALK.y, 'breaker');
-        spawnEnemy(game, BOARDWALK.x + 160, BOARDWALK.y - 40, 'brute');
+  } else if (i === 5) {
+    let all = true;
+    for (let s = 0; s < 3; s += 1) {
+      if (!m.data.visited[s] && near(p.x, p.y, m.data.stops[s].x, m.data.stops[s].y, 70)) {
+        m.data.visited[s] = true;
+        G.audio.chime();
       }
-      return;
+      if (!m.data.visited[s]) all = false;
     }
-    if (game.enemies.length === 0) finishMission(game);
-    return;
-  }
-  if (index === 4) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 90)) {
-        missions.stage = 1;
-        missions.target = { x: MARINA.x, y: MARINA.y };
-        missions.targetLabel = 'The Marina';
-        missions.text = 'Get the fare to the marina — beat the clock!';
-        missions.timeLimit = TAXI.fareSeconds;
-        missions.timeLeft = TAXI.fareSeconds;
+    if (all) completeMission(G);
+  } else if (i === 6) {
+    if (m.stage === 'steal' && p.car === m.data.goldCar) {
+      m.stage = 'deliver';
+      showBanner(G, 'Gold Strider stolen', 'Bring it to the hideout — don\u2019t wreck it.');
+    } else if (m.stage === 'deliver' && p.car === m.data.goldCar && near(p.car.x, p.car.y, LANDMARKS.hideout.x, LANDMARKS.hideout.y, 90)) {
+      if (p.car.damage >= 90) {
+        failMission(G, 'The Strider arrived wrecked — try again.');
+      } else {
+        completeMission(G);
       }
-      return;
     }
-    missions.timeLeft -= dt;
-    if (missions.timeLeft <= 0) {
-      failMission(game, 'The fare walked away — press Enter to try again.');
-      return;
-    }
-    if (atTarget(game, 100)) finishMission(game);
-    return;
-  }
-  if (index === 5) {
-    if (atTarget(game, 100)) {
-      missions.stage += 1;
-      if (missions.stage >= COURIER_STOPS.length) {
-        finishMission(game);
-        return;
-      }
-      const next = COURIER_STOPS[missions.stage];
-      missions.target = { x: next.x, y: next.y };
-      missions.targetLabel = next.label;
-      missions.text = `Next stop: ${next.label}.`;
-    }
-    return;
-  }
-  if (index === 6) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 140)) {
-        missions.stage = 1;
-        missions.text = 'Take the Strider — the runners will not like it.';
-        const strider = makeCar(game.random, MARINA.x - 40, MARINA.y + 30, Math.PI / 2, 'parked');
-        strider.model = 'Strider';
-        strider.color = '#f2c94c';
-        strider.top = 1.12;
-        strider.accel = 1.1;
-        game.cars.push(strider);
-        missions.stealCarId = strider.id;
-        spawnEnemy(game, MARINA.x + 60, MARINA.y - 60, 'runner');
-        spawnEnemy(game, MARINA.x + 120, MARINA.y + 40, 'runner');
-      }
-      return;
-    }
-    if (missions.stage === 1) {
-      const car = playerCar(game);
-      if (car && car.id === missions.stealCarId) {
-        missions.stage = 2;
-        missions.target = { x: GARAGE.x, y: GARAGE.y };
-        missions.targetLabel = 'Marlowe Motors';
-        missions.text = 'Bring the Strider to Marlowe Motors.';
-        addWanted(game, 2, 'Grand theft Strider');
-      }
-      return;
-    }
-    if (atTarget(game, 110) && player.inCar) finishMission(game);
-    return;
-  }
-  if (index === 7) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 120)) {
-        missions.stage = 1;
-        missions.timer = 0;
-        missions.text = 'Hold up the bank — stay inside the marker.';
-      }
-      return;
-    }
-    if (missions.stage === 1) {
-      if (atTarget(game, 130)) {
-        missions.timer += dt;
-        if (missions.timer >= 8) {
-          missions.stage = 2;
-          missions.target = { x: HIDEOUT.x, y: HIDEOUT.y };
-          missions.targetLabel = 'The Hideout';
-          missions.text = 'Lose the cops and reach the hideout.';
-          addWanted(game, 3, 'Bank robbery');
+  } else if (i === 7) {
+    if (m.stage === 'bank') {
+      if (near(p.x, p.y, LANDMARKS.bank.x, LANDMARKS.bank.y, 70)) {
+        m.holdup = (m.holdup || 0) + dt;
+        if (m.holdup >= 3) {
+          m.stage = 'escape';
+          addWanted(G, 4);
+          showBanner(G, 'The vault is open — run!', 'Escape the 4-star chase to the hideout.');
         }
       } else {
-        missions.timer = Math.max(0, missions.timer - dt * 2);
+        m.holdup = 0;
       }
-      return;
+    } else if (near(p.x, p.y, LANDMARKS.hideout.x, LANDMARKS.hideout.y, 90)) {
+      completeMission(G);
     }
-    if (atTarget(game, 110) && game.crime.wanted === 0) finishMission(game);
-    return;
+  } else if (i === 8) {
+    if (m.stage === 'fight') {
+      if (G.crew.length > 0 && G.crew.every((f) => !f.alive)) {
+        m.stage = 'escape';
+        addWanted(G, 5);
+        showBanner(G, 'Vane\u2019s crew is down', 'Escape the 5-star chase to the hideout.');
+      }
+    } else if (near(p.x, p.y, LANDMARKS.hideout.x, LANDMARKS.hideout.y, 90)) {
+      completeMission(G);
+    }
   }
-  if (index === 8) {
-    if (missions.stage === 0) {
-      if (atTarget(game, 160)) {
-        missions.stage = 1;
-        missions.text = 'End Marco Vane’s crew.';
-        spawnEnemy(game, DOCKS.x - 160, DOCKS.y - 60, 'breaker');
-        spawnEnemy(game, DOCKS.x - 80, DOCKS.y + 40, 'breaker');
-        spawnEnemy(game, DOCKS.x, DOCKS.y - 60, 'runner');
-        spawnEnemy(game, DOCKS.x + 80, DOCKS.y + 30, 'runner');
-        spawnEnemy(game, DOCKS.x + 160, DOCKS.y - 40, 'brute');
-        spawnEnemy(game, DOCKS.x + 40, DOCKS.y - 100, 'brute');
-      }
-      return;
-    }
-    if (missions.stage === 1) {
-      if (game.enemies.length === 0) {
-        missions.stage = 2;
-        missions.target = { x: HIDEOUT.x, y: HIDEOUT.y };
-        missions.targetLabel = 'The Hideout';
-        missions.text = 'Lose the heat and reach the hideout.';
-        addWanted(game, 5, 'Marco Vane is down');
-      }
-      return;
-    }
-    if (atTarget(game, 110) && game.crime.wanted === 0) finishMission(game);
+}
+
+/** The current objective line for the HUD. */
+export function missionObjective(G) {
+  const m = G.missions;
+  const i = m.index;
+  if (i === 0) return 'Walk to Marlowe Motors';
+  if (i === 1) return 'Steal a car, bring it to the garage';
+  if (i === 2) return m.stage === 'pickup' ? 'Pick up the package' : 'Deliver the package';
+  if (i === 3) return `Fight off the Breakers (${G.crew.filter((f) => f.alive).length} left)`;
+  if (i === 4) return m.stage === 'pickup' ? 'Pick Rosa up — in a car' : 'Drive Rosa to her destination';
+  if (i === 5) return `Courier stops: ${m.data.visited.filter(Boolean).length} of 3`;
+  if (i === 6) return m.stage === 'steal' ? 'Steal the gold Strider at the harbour' : 'Bring the Strider to the hideout';
+  if (i === 7) return m.stage === 'bank' ? 'Hold up the bank — stand at the door' : 'Escape to the hideout';
+  return m.stage === 'fight' ? `Fight Vane\u2019s crew (${G.crew.filter((f) => f.alive).length} left)` : 'Escape to the hideout';
+}
+
+/** The current map marker for the HUD and minimap, or null. */
+export function missionMarker(G) {
+  const m = G.missions;
+  const i = m.index;
+  if (i === 0 || i === 1) return LANDMARKS.garage;
+  if (i === 2) return m.stage === 'pickup' ? m.data.pickup : m.data.dest;
+  if (i === 3) return LANDMARKS.boardwalk;
+  if (i === 4) return m.stage === 'pickup' ? m.data.rosa : m.data.dest;
+  if (i === 5) {
+    for (let s = 0; s < 3; s += 1) if (!m.data.visited[s]) return m.data.stops[s];
+    return null;
   }
+  if (i === 6) return m.stage === 'steal' ? { x: 4150, y: 700 } : LANDMARKS.hideout;
+  if (i === 7) return m.stage === 'bank' ? LANDMARKS.bank : LANDMARKS.hideout;
+  return m.stage === 'fight' ? LANDMARKS.docks : LANDMARKS.hideout;
 }

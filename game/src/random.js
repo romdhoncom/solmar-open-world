@@ -1,40 +1,48 @@
-// One seeded generator (mulberry32) for the whole game. The same seed
-// always builds the same city, the same traffic, the same fares and the
-// same screenshot scenes, so any run can be replayed exactly.
+// The game's only source of chance: a small seeded generator.
+// The world, the traffic, the mission targets and every effect that
+// needs a number all draw from it, so the same seed plays the same game
+// every run. Nothing in the game calls Math.random.
 
-export function createRandom(seed) {
-  let state = seed | 0;
+// mulberry32: a tiny, well-behaved 32-bit generator.
+export function makeRng(seed) {
+  let a = seed >>> 0;
   return function next() {
-    state = (state + 0x6d2b79f5) | 0;
-    let value = Math.imul(state ^ (state >>> 15), 1 | state);
-    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-/** One item from `list`, drawn with the seeded generator. */
-export function pick(random, list) {
-  return list[Math.floor(random() * list.length)];
+// A number in [min, max).
+export function range(rng, min, max) {
+  return min + rng() * (max - min);
 }
 
-/** A number from `low` to `high`, drawn with the seeded generator. */
-export function range(random, low, high) {
-  return low + random() * (high - low);
+// An integer in [min, max] inclusive.
+export function intIn(rng, min, max) {
+  return min + Math.floor(rng() * (max - min + 1));
 }
 
-/** True with probability `p` (0 to 1), from the seeded generator. */
-export function chance(random, p) {
-  return random() < p;
+// One element of an array, picked by the generator.
+export function pick(rng, list) {
+  return list[Math.floor(rng() * list.length)];
 }
 
-/** A copy of `list` shuffled with the seeded generator. */
-export function shuffle(random, list) {
+// True with probability p (0..1).
+export function chance(rng, p) {
+  return rng() < p;
+}
+
+// A shuffled copy of a list (Fisher-Yates, driven by the generator).
+export function shuffle(rng, list) {
   const out = list.slice();
   for (let i = out.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(random() * (i + 1));
-    const held = out[i];
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i];
     out[i] = out[j];
-    out[j] = held;
+    out[j] = tmp;
   }
   return out;
 }
