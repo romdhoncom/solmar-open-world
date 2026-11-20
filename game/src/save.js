@@ -1,55 +1,49 @@
-// Saving and loading: one localStorage key, versioned, so an older
-// save still loads. The game saves on mission completion, on a fare,
-// on a package and on a rank-up — never in the middle of a frame.
+// Solmar 3D — saving and loading (localStorage).
+// Written fresh in this session for the v5 rebuild (prose spec only).
+// Saves money, missions completed, kills, fares, packages, jumps and
+// rank. Loading an older save format (v1, without rank points or the
+// jumps list) still works: missing fields fall back to defaults.
 
-const KEY = 'solmar-save-v2';
-const OLD_KEY = 'solmar-save';
+const KEY = 'solmar3d-save-v2';
+const OLD_KEY = 'solmar-save-v1';
 
-/** Write the current progress. Never throws. */
-export function saveGame(G) {
-  try {
-    const data = {
-      v: 2,
-      money: G.player.money,
-      missionsDone: G.missions.done,
-      kills: G.player.kills,
-      fares: G.sidejobs.faresDone,
-      packages: G.sidejobs.packages.map((p) => p.taken),
-      rankPoints: G.rank.points,
-    };
-    localStorage.setItem(KEY, JSON.stringify(data));
-  } catch (e) {
-    // Storage unavailable (a private window, say): the game still plays.
-  }
+export function defaultSave() {
+  return {
+    version: 2,
+    money: 150,
+    missionsDone: [],
+    kills: 0,
+    fares: 0,
+    packages: [],
+    jumps: [],
+    rankPoints: 0,
+  };
 }
 
-/** Read a save, migrating the older shape. Returns null when none. */
-export function loadGame() {
+export function loadSave() {
   try {
     const raw = localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw);
-    if (typeof d.money !== 'number') return null;
-    return {
-      money: d.money,
-      missionsDone: d.missionsDone || 0,
-      kills: d.kills || 0,
-      fares: d.fares || 0,
-      packages: Array.isArray(d.packages) ? d.packages : [],
-      rankPoints: d.rankPoints || 0,
-      version: d.v || 1,
-    };
-  } catch (e) {
-    return null;
+    if (!raw) return defaultSave();
+    const data = JSON.parse(raw);
+    const d = defaultSave();
+    if (typeof data.money === 'number') d.money = data.money;
+    if (Array.isArray(data.missionsDone)) d.missionsDone = data.missionsDone;
+    if (typeof data.kills === 'number') d.kills = data.kills;
+    if (typeof data.fares === 'number') d.fares = data.fares;
+    if (Array.isArray(data.packages)) d.packages = data.packages;
+    if (Array.isArray(data.jumps)) d.jumps = data.jumps;
+    if (typeof data.rankPoints === 'number') d.rankPoints = data.rankPoints;
+    return d;
+  } catch (err) {
+    return defaultSave();
   }
 }
 
-/** Forget the save entirely (a fresh start after the finale). */
-export function clearSave() {
+export function storeSave(data) {
   try {
-    localStorage.removeItem(KEY);
-    localStorage.removeItem(OLD_KEY);
-  } catch (e) {
-    // Nothing to forget.
+    localStorage.setItem(KEY, JSON.stringify({ ...data, version: 2 }));
+    return true;
+  } catch (err) {
+    return false;
   }
 }

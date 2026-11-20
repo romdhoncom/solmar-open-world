@@ -1,172 +1,173 @@
-// Traffic and pedestrians: the city moving around the player.
-// Traffic cars keep to their lane on the road grid and turn at
-// intersections; pedestrians walk the pavements and cross at crosswalks.
-// Both react to the player in simple ways: traffic slows when something
-// is ahead, pedestrians step aside from a fast car and run from gunfire.
+// Solmar 3D — traffic cars and pedestrians.
+// Written fresh in this session for the v5 rebuild (prose spec only).
+// About 30 traffic cars drive the road grid, turning at intersections
+// and keeping to their lane; about 48 pedestrians walk the pavements
+// and cross at crosswalks. Both react simply: they slow or step aside
+// when the player drives at them, and they flee when shots are fired.
 
-import { BEACH, PED_COUNT, ROADS, TRAFFIC_COUNT } from './config.js';
-import { pick, range } from './random.js';
-import { CAR_MODELS, makeCar } from './vehicles.js';
+import * as THREE from 'three';
+import { TRAFFIC_CARS, PEDESTRIANS, TRAFFIC_SPEED, ROADS_X, ROADS_Z, ROAD_HALF } from './config.js';
+import { makeRng, range, int, pick } from './random.js';
+import { buildCarMesh } from './vehicles.js';
+import { CAR_MODELS } from './config.js';
 
-/** A traffic car: a car plus the road it is following. */
-function makeTrafficCar(G, rng) {
-  const vertical = rng() < 0.5;
-  const line = vertical ? pick(rng, ROADS.vertical) : pick(rng, ROADS.horizontal);
-  const along = range(rng, 200, vertical ? 3100 : 4700);
-  const lane = (ROADS.width / 2 - 22) * (rng() < 0.5 ? -1 : 1);
-  const dir = rng() < 0.5 ? 1 : -1;
-  const car = makeCar(pick(rng, CAR_MODELS), vertical ? line + lane : along, vertical ? along : line + lane, 0, 'traffic');
-  car.axis = vertical ? 'v' : 'h';
-  car.line = line;
-  car.dir = dir;
-  car.cruise = range(rng, 130, 220);
-  car.angle = vertical ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-  return car;
-}
-
-export function spawnTraffic(G) {
+export function createTraffic(G) {
+  const rng = makeRng(G.seed + 202);
   const cars = [];
-  for (let i = 0; i < TRAFFIC_COUNT; i += 1) cars.push(makeTrafficCar(G, G.rng));
-  return cars;
-}
-
-function nearestCrossing(value, lines) {
-  let best = null;
-  let bestD = Infinity;
-  for (const line of lines) {
-    const d = Math.abs(value - line);
-    if (d < bestD) { bestD = d; best = line; }
-  }
-  return { line: best, dist: bestD };
-}
-
-export function updateTraffic(G, dt) {
-  const p = G.player;
-  for (const car of G.cars) {
-    if (car.owner !== 'traffic') continue;
-    // Slow down for the car ahead, the player's included.
-    let target = car.cruise;
-    for (const other of G.cars) {
-      if (other === car || other.wrecked) continue;
-      const dx = other.x - car.x;
-      const dy = other.y - car.y;
-      const ahead = car.axis === 'v' ? dy * car.dir : dx * car.dir;
-      const side = car.axis === 'v' ? Math.abs(dx) : Math.abs(dy);
-      if (ahead > 0 && ahead < 90 && side < 40) { target = 0; break; }
-    }
-    if (p.car) {
-      const dx = p.car.x - car.x;
-      const dy = p.car.y - car.y;
-      const ahead = car.axis === 'v' ? dy * car.dir : dx * car.dir;
-      const side = car.axis === 'v' ? Math.abs(dx) : Math.abs(dy);
-      if (ahead > 0 && ahead < 90 && side < 40) target = 0;
-    }
-    // Ease toward the target speed, then roll along the road.
-    car.speed += (target - car.speed) * Math.min(1, 2.5 * dt);
-    if (car.axis === 'v') car.y += car.dir * car.speed * dt;
-    else car.x += car.dir * car.speed * dt;
-    // At an intersection, sometimes turn onto the cross road.
-    const pos = car.axis === 'v' ? car.y : car.x;
-    const cross = nearestCrossing(pos, car.axis === 'v' ? ROADS.horizontal : ROADS.vertical);
-    if (cross.dist < 14 && G.rng() < 0.02) {
-      const wasVertical = car.axis === 'v';
-      car.axis = wasVertical ? 'h' : 'v';
-      car.line = cross.line;
-      const lane = (ROADS.width / 2 - 22) * (G.rng() < 0.5 ? -1 : 1);
-      if (wasVertical) {
-        car.y = cross.line + lane;
-        car.dir = G.rng() < 0.5 ? 1 : -1;
-        car.angle = car.dir > 0 ? 0 : Math.PI;
-      } else {
-        car.x = cross.line + lane;
-        car.dir = G.rng() < 0.5 ? 1 : -1;
-        car.angle = car.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-      }
-    }
-    // Wrap around the far edge so the streets never empty out.
-    if (car.axis === 'v' && (car.y < 60 || car.y > BEACH.y - 40)) {
-      car.y = car.dir > 0 ? 80 : BEACH.y - 60;
-    }
-    if (car.axis === 'h' && (car.x < 60 || car.x > 4740)) {
-      car.x = car.dir > 0 ? 80 : 4720;
-    }
-  }
-}
-
-/** A pedestrian: a walker on the pavements. */
-function makePed(G, rng) {
-  const vertical = rng() < 0.5;
-  const line = vertical ? pick(rng, ROADS.vertical) : pick(rng, ROADS.horizontal);
-  const along = range(rng, 200, vertical ? 3100 : 4700);
-  const side = (ROADS.width / 2 + 14) * (rng() < 0.5 ? -1 : 1);
-  return {
-    x: vertical ? line + side : along,
-    y: vertical ? along : line + side,
-    axis: vertical ? 'v' : 'h',
-    dir: rng() < 0.5 ? 1 : -1,
-    speed: range(rng, 45, 75),
-    color: pick(rng, ['#e86a5a', '#5a8a4a', '#4a6a9a', '#c9a34a', '#8a5a9a', '#e8e2c8']),
-    alive: true,
-    flee: 0,
-    fleeX: 0,
-    fleeY: 0,
-  };
-}
-
-export function spawnPeds(G) {
   const peds = [];
-  for (let i = 0; i < PED_COUNT; i += 1) peds.push(makePed(G, G.rng));
-  return peds;
-}
+  const pedColors = [0xd84a4a, 0x4a7ad8, 0x4ad87a, 0xd8c84a, 0x9a4ad8, 0xd87a4a, 0x4ad8d8, 0xe8e8e8];
+  const fleeFrom = { x: 0, z: 0, until: 0 };
 
-export function updatePeds(G, dt) {
-  const p = G.player;
-  for (const ped of G.peds) {
-    if (!ped.alive) continue;
-    // A gunshot nearby, or a fast car bearing down, sends them running.
-    if (G.shotNoise > 0 && Math.hypot(ped.x - p.x, ped.y - p.y) < 220) {
-      ped.flee = 2;
-      ped.fleeX = ped.x - p.x;
-      ped.fleeY = ped.y - p.y;
+  function spawnTrafficCar() {
+    const vertical = rng() < 0.5;
+    const road = pick(rng, vertical ? ROADS_X : ROADS_Z);
+    const along = range(rng, -160, 160);
+    const dir = rng() < 0.5 ? 1 : -1;
+    const lane = (rng() < 0.5 ? -1 : 1) * 3;
+    const model = CAR_MODELS[int(rng, 0, 5)];
+    const mesh = buildCarMesh(model);
+    const x = vertical ? road + lane : along;
+    const z = vertical ? along : road + lane;
+    mesh.position.set(x, 0, z);
+    G.scene.add(mesh);
+    const car = {
+      mesh, model, x, z,
+      heading: vertical ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2),
+      vertical, road, dir, lane,
+      speed: range(rng, TRAFFIC_SPEED * 0.7, TRAFFIC_SPEED * 1.1),
+      turnAt: null,
+    };
+    mesh.rotation.y = car.heading;
+    cars.push(car);
+    return car;
+  }
+
+  function spawnPed() {
+    const onRoad = pick(rng, ROADS_X);
+    const along = range(rng, -160, 160);
+    const side = rng() < 0.5 ? -1 : 1;
+    const vertical = rng() < 0.5;
+    const x = vertical ? onRoad + side * (ROAD_HALF + 2.5) : along;
+    const z = vertical ? along : onRoad + side * (ROAD_HALF + 2.5);
+    const color = pick(rng, pedColors);
+    const group = new THREE.Group();
+    const bodyMat = new THREE.MeshLambertMaterial({ color });
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xc89878 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.9, 3, 6), bodyMat);
+    body.position.y = 1.0;
+    body.castShadow = true;
+    group.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 6), skinMat);
+    head.position.y = 1.85;
+    group.add(head);
+    group.position.set(x, 0, z);
+    G.scene.add(group);
+    const ped = {
+      mesh: group, x, z,
+      heading: rng() * Math.PI * 2,
+      speed: range(rng, 1.2, 2.2),
+      vertical, road: onRoad, side,
+      phase: rng() * 6,
+      flee: 0,
+    };
+    peds.push(ped);
+    return ped;
+  }
+
+  for (let i = 0; i < TRAFFIC_CARS; i++) spawnTrafficCar();
+  for (let i = 0; i < PEDESTRIANS; i++) spawnPed();
+
+  function scare(x, z, seconds) {
+    fleeFrom.x = x; fleeFrom.z = z; fleeFrom.until = G.time + seconds;
+  }
+
+  function updateTrafficCar(c, dt) {
+    // Slow down if the player's car is right ahead.
+    const playerCar = G.player.inCar;
+    let targetSpeed = c.speed;
+    if (playerCar) {
+      const d = Math.hypot(playerCar.x - c.x, playerCar.z - c.z);
+      if (d < 12) targetSpeed = c.speed * 0.3;
     }
-    if (p.car && Math.abs(p.car.speed) > 200 && Math.hypot(ped.x - p.car.x, ped.y - p.car.y) < 110) {
-      ped.flee = 1.2;
-      ped.fleeX = ped.x - p.car.x;
-      ped.fleeY = ped.y - p.car.y;
-    }
-    if (ped.flee > 0) {
-      ped.flee -= dt;
-      const len = Math.hypot(ped.fleeX, ped.fleeY) || 1;
-      ped.x += (ped.fleeX / len) * 130 * dt;
-      ped.y += (ped.fleeY / len) * 130 * dt;
-      ped.x = Math.max(20, Math.min(4780, ped.x));
-      ped.y = Math.max(20, Math.min(3580, ped.y));
-      continue;
-    }
-    const step = ped.speed * dt;
-    if (ped.axis === 'v') ped.y += ped.dir * step;
-    else ped.x += ped.dir * step;
-    const pos = ped.axis === 'v' ? ped.y : ped.x;
-    const cross = nearestCrossing(pos, ped.axis === 'v' ? ROADS.horizontal : ROADS.vertical);
-    if (cross.dist < 10 && G.rng() < 0.015) {
-      const wasVertical = ped.axis === 'v';
-      ped.axis = wasVertical ? 'h' : 'v';
-      const side = (ROADS.width / 2 + 14) * (G.rng() < 0.5 ? -1 : 1);
-      if (wasVertical) {
-        ped.y = cross.line + side;
-        ped.dir = G.rng() < 0.5 ? 1 : -1;
-      } else {
-        ped.x = cross.line + side;
-        ped.dir = G.rng() < 0.5 ? 1 : -1;
+    const step = targetSpeed * dt;
+    if (c.vertical) {
+      c.z += Math.cos(c.heading) * step;
+      // Turn at an intersection sometimes.
+      const nearRoad = ROADS_Z.find((rz) => Math.abs(c.z - rz) < 1.2);
+      if (nearRoad !== undefined && rng() < 0.02) {
+        c.vertical = false;
+        c.road = nearRoad;
+        c.dir = rng() < 0.5 ? 1 : -1;
+        c.heading = c.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        c.x = c.road + c.lane;
       }
+      if (c.z > 175 || c.z < -175) { c.z = -c.z * 0.95; c.heading += Math.PI; }
+    } else {
+      c.x += Math.sin(c.heading) * step;
+      const nearRoad = ROADS_X.find((rx) => Math.abs(c.x - rx) < 1.2);
+      if (nearRoad !== undefined && rng() < 0.02) {
+        c.vertical = true;
+        c.road = nearRoad;
+        c.dir = rng() < 0.5 ? 1 : -1;
+        c.heading = c.dir > 0 ? 0 : Math.PI;
+        c.z = c.road + c.lane;
+      }
+      // East-west traffic can cross the harbour bridge onto the
+      // headland strip (x to 245); beyond that it turns back.
+      if (c.x > 245 || c.x < -175) { c.x = -c.x * 0.95; c.heading += Math.PI; }
     }
-    if (ped.axis === 'v' && (ped.y < 40 || ped.y > 3560)) ped.dir *= -1;
-    if (ped.axis === 'h' && (ped.x < 40 || ped.x > 4760)) ped.dir *= -1;
-  }
-  // The dead are picked back up over time, so the streets stay alive.
-  for (const ped of G.peds) {
-    if (!ped.alive && G.rng() < 0.002) {
-      Object.assign(ped, makePed(G, G.rng));
+    // Stay in lane: drift back toward the road line.
+    if (c.vertical) {
+      const target = c.road + c.lane;
+      c.x += (target - c.x) * Math.min(1, dt * 2);
+    } else {
+      const target = c.road + c.lane;
+      c.z += (target - c.z) * Math.min(1, dt * 2);
     }
+    c.mesh.position.set(c.x, 0, c.z);
+    c.mesh.rotation.y = c.heading;
   }
+
+  function updatePed(p, dt) {
+    const fleeing = G.time < fleeFrom.until && Math.hypot(p.x - fleeFrom.x, p.z - fleeFrom.z) < 30;
+    let speed = p.speed;
+    let heading = p.heading;
+    if (p.walkDir === undefined) p.walkDir = rng() < 0.5 ? 1 : -1;
+    if (fleeing) {
+      // Run away from the scare point.
+      const dx = p.x - fleeFrom.x;
+      const dz = p.z - fleeFrom.z;
+      heading = Math.atan2(dx, dz);
+      speed = p.speed * 3;
+      p.x += Math.sin(heading) * speed * dt;
+      p.z += Math.cos(heading) * speed * dt;
+      const fixed = G.world.collideCircle(p.x, p.z, 0.5);
+      p.x = fixed.x; p.z = fixed.z;
+    } else if (p.vertical) {
+      // Walk along the pavement beside a vertical road (north/south).
+      p.z += p.walkDir * speed * dt;
+      if (p.z > 175) { p.z = 175; p.walkDir = -1; }
+      if (p.z < -175) { p.z = -175; p.walkDir = 1; }
+      p.x = p.road + p.side * (ROAD_HALF + 2.5);
+      heading = p.walkDir > 0 ? 0 : Math.PI;
+    } else {
+      // Walk along the pavement beside a horizontal road (east/west).
+      p.x += p.walkDir * speed * dt;
+      if (p.x > 175) { p.x = 175; p.walkDir = -1; }
+      if (p.x < -175) { p.x = -175; p.walkDir = 1; }
+      p.z = p.road + p.side * (ROAD_HALF + 2.5);
+      heading = p.walkDir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    }
+    p.heading = heading;
+    p.phase += dt * speed * 2;
+    p.mesh.position.set(p.x, Math.abs(Math.sin(p.phase)) * 0.08, p.z);
+    p.mesh.rotation.y = p.heading;
+  }
+
+  function update(dt) {
+    for (const c of cars) updateTrafficCar(c, dt);
+    for (const p of peds) updatePed(p, dt);
+  }
+
+  return { cars, peds, update, scare };
 }

@@ -1,111 +1,180 @@
-// Side jobs: repeatable taxi fares and the twelve hidden packages.
-// Fares appear while the player is driving; packages sit in fixed,
-// findable spots around the city and pay a bonus when all are found.
+// Solmar 3D — side jobs: repeatable taxi fares, hidden packages and
+// stunt jumps.
+// Written fresh in this session for the v5 rebuild (prose spec only).
+// A fare marker appears; drive the customer to the destination and get
+// paid plus a tip for speed. Twelve hidden packages are scattered
+// around the city (rooftops, alleys, the beach, the pier); each is
+// worth $50 and all twelve pay a $500 bonus. Five stunt jumps are
+// marked around the city; landing one pays $100 and shows a banner.
 
-import { SIDEJOBS } from './config.js';
-import { roadPointNear, hitsBuilding } from './world.js';
-import { addRankPoints } from './rank.js';
-import { saveGame } from './save.js';
+import * as THREE from 'three';
+import { PACKAGES, PACKAGE_VALUE, PACKAGE_BONUS, JUMPS, JUMP_VALUE, FARE_BASE, FARE_TIP, ROADS_X, ROADS_Z } from './config.js';
+import { makeRng, range, pick } from './random.js';
 
-export function createSidejobs() {
-  return {
-    packages: [],
-    collected: 0,
-    bonusPaid: false,
-    fare: null,
-    fareCooldown: 0,
-    faresDone: 0,
-  };
-}
+const PACKAGE_SPOTS = [
+  [-150, -150], [-40, -150], [120, -150], [150, -40], [-150, 40],
+  [40, 120], [150, 120], [-120, 150], [60, 160], [-160, -80],
+  [-34, 240], [170, 60],
+];
+const JUMP_SPOTS = [
+  { x: 165, z: -30, name: 'Bridge Jump' },
+  { x: -34, z: 200, name: 'Pier Jump' },
+  { x: 120, z: -120, name: 'Hills Jump' },
+  { x: -120, z: 120, name: 'Beach Jump' },
+  { x: 80, z: 160, name: 'Boardwalk Jump' },
+];
 
-/** Scatter the twelve packages: beach, pier, parks, alleys, marina. */
-export function initPackages(G) {
-  const spots = [];
-  // Beach and pier.
-  spots.push({ x: 900, y: 3300 });
-  spots.push({ x: 1900, y: 3340 });
-  spots.push({ x: 3800, y: 3280 });
-  spots.push({ x: 3100, y: 3400 });
-  // Parks and the plaza.
-  spots.push({ x: 2600, y: 2000 });
-  // Alleys: points inside blocks, clear of buildings.
-  const tries = [
-    { x: 1000, y: 800 }, { x: 1800, y: 1400 }, { x: 2600, y: 800 },
-    { x: 3400, y: 1400 }, { x: 1000, y: 2600 }, { x: 3400, y: 2600 },
-    { x: 4300, y: 1550 }, { x: 1800, y: 2600 },
-  ];
-  for (const t of tries) {
-    if (!hitsBuilding(G.city, t.x, t.y, 30)) spots.push(t);
+export function createSideJobs(G) {
+  const rng = makeRng(G.seed + 404);
+  const packages = [];
+  const jumps = [];
+  let fare = null; // {x, z, destX, destZ, marker, destMarker, timeLeft, active}
+  let fareTimer = 8;
+
+  function markerMesh(color) {
+    const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.7, transparent: true, opacity: 0.85 });
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 6, 10, 1, true), mat);
+    m.position.y = 3;
+    G.scene.add(m);
+    return m;
   }
-  // Fill any shortfall with park centres, so there are always twelve.
-  let pi = 0;
-  while (spots.length < SIDEJOBS.packageCount && pi < G.city.parks.length) {
-    const park = G.city.parks[pi];
-    pi += 1;
-    const spot = { x: park.x + park.width / 2, y: park.y + park.height / 2 };
-    if (!spots.some((s) => Math.hypot(s.x - spot.x, s.y - spot.y) < 120)) spots.push(spot);
+
+  // Hidden packages.
+  for (let i = 0; i < PACKAGES; i++) {
+    const [x, z] = PACKAGE_SPOTS[i];
+    const taken = (G.save.packages || []).includes(i);
+    if (taken) continue;
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.8, 0.8),
+      new THREE.MeshLambertMaterial({ color: 0xffd24a, emissive: 0xaa8822, emissiveIntensity: 0.7 }),
+    );
+    mesh.position.set(x, 0.9, z);
+    mesh.castShadow = true;
+    G.scene.add(mesh);
+    packages.push({ mesh, x, z, index: i, spin: 0 });
   }
-  G.sidejobs.packages = spots.slice(0, SIDEJOBS.packageCount).map((s) => ({
-    x: s.x, y: s.y, taken: false,
-  }));
-}
 
-export function updateSidejobs(G, dt) {
-  const sj = G.sidejobs;
-  const p = G.player;
+  // Stunt jump ramps.
+  for (let i = 0; i < JUMPS; i++) {
+    const s = JUMP_SPOTS[i];
+    const done = (G.save.jumps || []).includes(i);
+    const ramp = new THREE.Mesh(
+      new THREE.BoxGeometry(5, 0.6, 8),
+      new THREE.MeshLambertMaterial({ color: done ? 0x666666 : 0xe86a2a }),
+    );
+    ramp.position.set(s.x, 0.3, s.z);
+    ramp.rotation.x = -0.35;
+    ramp.castShadow = true;
+    G.scene.add(ramp);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(3, 0.25, 8, 20),
+      new THREE.MeshLambertMaterial({ color: 0xffd24a, emissive: 0xaa8822, emissiveIntensity: 0.6 }),
+    );
+    ring.position.set(s.x, 3.2, s.z);
+    G.scene.add(ring);
+    jumps.push({ ...s, mesh: ramp, ring, index: i, done, cooldown: 0 });
+  }
 
-  // Picking up a package: walk or drive over it.
-  for (const pkg of sj.packages) {
-    if (!pkg.taken && Math.hypot(pkg.x - p.x, pkg.y - p.y) < 42) {
-      pkg.taken = true;
-      sj.collected += 1;
-      p.money += SIDEJOBS.packagePay;
-      addRankPoints(G, 3);
-      G.audio.chime();
-      if (sj.collected >= SIDEJOBS.packageCount && !sj.bonusPaid) {
-        sj.bonusPaid = true;
-        p.money += SIDEJOBS.packageBonus;
+  function randomFareSpot() {
+    const road = pick(rng, ROADS_X);
+    return { x: road + (rng() < 0.5 ? -8.5 : 8.5), z: range(rng, -150, 150) };
+  }
+
+  function startFare() {
+    const spot = randomFareSpot();
+    const dest = randomFareSpot();
+    if (fare) {
+      G.scene.remove(fare.marker);
+      if (fare.destMarker) G.scene.remove(fare.destMarker);
+    }
+    fare = {
+      x: spot.x, z: spot.z, destX: dest.x, destZ: dest.z,
+      marker: markerMesh(0xffd24a), destMarker: null,
+      pickedUp: false, timeLeft: 150, active: true,
+    };
+    fare.marker.position.set(spot.x, 3, spot.z);
+    G.hud.setObjective('Taxi fare', 'Pick up the customer at the yellow marker');
+    G.hud.setMarker(spot.x, spot.z, 0xffd24a);
+  }
+
+  function update(dt) {
+    const p = G.player;
+    const px = p.inCar ? p.inCar.x : p.x;
+    const pz = p.inCar ? p.inCar.z : p.z;
+    // Packages: walk over them.
+    for (const pk of [...packages]) {
+      pk.spin += dt * 2;
+      pk.mesh.rotation.y = pk.spin;
+      if (!p.inCar && Math.hypot(p.x - pk.x, p.z - pk.z) < 1.6) {
+        G.scene.remove(pk.mesh);
+        packages.splice(packages.indexOf(pk), 1);
+        G.save.packages.push(pk.index);
+        p.money += PACKAGE_VALUE;
+        G.rank.add(10);
+        G.audio.pickup();
+        G.hud.banner('PACKAGE', `+$${PACKAGE_VALUE} — ${G.save.packages.length} of ${PACKAGES} found`);
+        if (G.save.packages.length >= PACKAGES) {
+          p.money += PACKAGE_BONUS;
+          G.hud.banner('ALL PACKAGES', `Bonus +$${PACKAGE_BONUS}`);
+        }
+      }
+    }
+    // Stunt jumps: drive over a ramp fast.
+    for (const j of jumps) {
+      if (j.done) continue;
+      j.cooldown -= dt;
+      if (p.inCar && j.cooldown <= 0 && Math.hypot(p.inCar.x - j.x, p.inCar.z - j.z) < 4 && Math.abs(p.inCar.speed) > 22) {
+        j.done = true;
+        j.cooldown = 10;
+        G.save.jumps.push(j.index);
+        j.mesh.material.color.setHex(0x666666);
+        p.money += JUMP_VALUE;
+        G.rank.add(15);
         G.audio.fanfare();
+        G.hud.banner('STUNT!', `${j.name} — +$${JUMP_VALUE}`);
       }
-      saveGame(G);
+    }
+    // Taxi fares: a new fare appears every so often; pick up and deliver.
+    if (!fare && !G.missions.current) {
+      fareTimer -= dt;
+      if (fareTimer <= 0) startFare();
+    }
+    if (fare && fare.active) {
+      fare.timeLeft -= dt;
+      if (fare.timeLeft <= 0) {
+        G.scene.remove(fare.marker);
+        if (fare.destMarker) G.scene.remove(fare.destMarker);
+        fare = null;
+        fareTimer = 20;
+        G.hud.setObjective('', '');
+        G.hud.setMarker(null, null);
+        return;
+      }
+      if (!fare.pickedUp) {
+        if (p.inCar && Math.hypot(px - fare.x, pz - fare.z) < 4) {
+          fare.pickedUp = true;
+          G.scene.remove(fare.marker);
+          fare.destMarker = markerMesh(0x66ff66);
+          fare.destMarker.position.set(fare.destX, 3, fare.destZ);
+          G.hud.setObjective('Taxi fare', 'Drive the customer to the green marker');
+          G.hud.setMarker(fare.destX, fare.destZ, 0x66ff66);
+          G.hud.banner('FARE', 'Customer aboard — drive to the green marker');
+        }
+      } else if (p.inCar && Math.hypot(px - fare.destX, pz - fare.destZ) < 5) {
+        const tip = fare.timeLeft > 60 ? FARE_TIP : 0;
+        p.money += FARE_BASE + tip;
+        G.save.fares++;
+        G.rank.add(10);
+        G.audio.chime();
+        G.hud.banner('FARE PAID', `+$${FARE_BASE + tip}${tip ? ' (speed tip!)' : ''}`);
+        G.scene.remove(fare.destMarker);
+        fare = null;
+        fareTimer = 15;
+        G.hud.setObjective('', '');
+        G.hud.setMarker(null, null);
+      }
     }
   }
 
-  // A fare appears once the player is driving and the last one cooled off.
-  sj.fareCooldown = Math.max(0, sj.fareCooldown - dt);
-  if (!sj.fare && p.car && sj.fareCooldown <= 0 && G.missions.index >= 4) {
-    const pickup = roadPointNear(G.rng, p.x, p.y, 350);
-    sj.fare = { stage: 'pickup', pickup, dest: null, timer: 0 };
-  }
-  if (sj.fare) {
-    const fare = sj.fare;
-    if (fare.stage === 'pickup') {
-      if (p.car && Math.hypot(p.car.x - fare.pickup.x, p.car.y - fare.pickup.y) < 70) {
-        fare.stage = 'drive';
-        fare.dest = roadPointNear(G.rng, p.x, p.y, 700);
-        fare.timer = 75;
-        G.audio.chime();
-      }
-    } else {
-      fare.timer -= dt;
-      if (fare.timer <= 0) {
-        sj.fare = null;
-        sj.fareCooldown = SIDEJOBS.fareCooldown;
-      } else if (p.car && Math.hypot(p.car.x - fare.dest.x, p.car.y - fare.dest.y) < 80) {
-        const tip = Math.ceil(fare.timer) * SIDEJOBS.fareTipPerSecond;
-        p.money += SIDEJOBS.farePay + tip;
-        sj.faresDone += 1;
-        addRankPoints(G, 5);
-        G.audio.chime();
-        sj.fare = null;
-        sj.fareCooldown = SIDEJOBS.fareCooldown;
-        saveGame(G);
-      }
-    }
-    // A fare is lost if the player gets out of the car mid-job.
-    if (sj.fare && !p.car) {
-      sj.fare = null;
-      sj.fareCooldown = SIDEJOBS.fareCooldown;
-    }
-  }
+  return { packages, jumps, update, startFare, get fare() { return fare; } };
 }

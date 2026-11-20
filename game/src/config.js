@@ -1,110 +1,134 @@
-// Solmar tuning: every number the game runs on lives in this one file,
-// so a balance change never means hunting through the other modules.
+// Solmar 3D — all tuning numbers and constants in one place.
+// Written fresh in this session for the v5 rebuild (prose spec only).
 
-export const SEED = 1337;
+export const SEED = 1;
 
-export const WORLD = { width: 4800, height: 3600 };
+// World layout (units are metres, ground plane y = 0).
+export const ISLAND_HALF = 210; // island spans -210..210 in x and z
+export const ROAD_HALF = 6; // road width 12
+export const ROADS_X = [-160, -80, 0, 80, 160];
+export const ROADS_Z = [-160, -80, 0, 80, 160];
+export const BEACH_Z = 175; // sand starts here (south edge)
+export const BOARDWALK_Z = 168;
+export const CHANNEL_X0 = 185; // harbour channel: water strip on the east edge
+export const CHANNEL_X1 = 215;
+export const PIER = { x0: -44, x1: -24, z0: 210, z1: 262 }; // pier deck into the sea
+export const BRIDGE = { x0: 160, x1: 215, z0: -8, z1: 8, y: 0.35 }; // deck over the channel at z=0
+export const LIGHTHOUSE = { x: 228, z: -192 };
 
-export const ROADS = {
-  vertical: [600, 1400, 2200, 3000, 3800],
-  horizontal: [500, 1100, 1700, 2300, 2900],
-  width: 96,
+// Named places (x, z) on the map.
+export const PLACES = {
+  garage: { x: -72, z: -72, name: 'Marlowe Motors' },
+  bank: { x: 72, z: -8, name: 'Solmar Bank' },
+  hospital: { x: -8, z: 72, name: 'St. Coral Hospital' },
+  safehouse: { x: -152, z: 152, name: 'Safehouse' },
+  marina: { x: 172, z: 40, name: 'Marina' },
+  policeStation: { x: 8, z: -152, name: 'Police Station' },
+  hideout: { x: -152, z: -152, name: 'Hideout' },
+  docks: { x: 186, z: 90, name: 'The Docks' },
+  boardwalk: { x: 40, z: 172, name: 'Boardwalk' },
+  plaza: { x: -120, z: 0, name: 'Market Plaza' },
 };
 
-export const BEACH = {
-  y: 3200,
-  sand: '#e8c98f',
-  water: '#54a9c9',
-  deep: '#2f7ea8',
+// Districts: name, roof colours, building height range.
+export const DISTRICTS = {
+  downtown: { roofs: [0xb5653a, 0xc2703e, 0xa8542f], hMin: 14, hMax: 34 },
+  beach: { roofs: [0xf2d8c9, 0xf7e6d2, 0xe8c8b8], hMin: 8, hMax: 16 },
+  market: { roofs: [0x9c4a2f, 0x8a3f28, 0xa85438], hMin: 8, hMax: 18 },
+  hills: { roofs: [0x5a6470, 0x4a545f, 0x6b7683], hMin: 10, hMax: 22 },
+  marina: { roofs: [0x7a8a99, 0x8b9aa8, 0x6b7f8f], hMin: 8, hMax: 16 },
 };
+export const PARK_EVERY = 6; // one block in six is a park
 
-export const HARBOUR = { x: 4200, y: 400, width: 600, height: 1000 };
+export const STREETS_X = ['Lighthouse Rd', 'Coral St', 'Solmar Blvd', 'Palm Row', 'Marina Drive'];
+export const STREETS_Z = ['Harbour Way', 'Market St', 'Sunset Ave', 'Boardwalk Rd', 'Pier St'];
 
-export const PALETTE = {
-  grass: '#8fae5e',
-  park: '#6f9a4e',
-  road: '#4a4a52',
-  roadEdge: '#d8d2c0',
-  lane: '#e8e2c8',
-  water: '#54a9c9',
-  boardwalk: '#c9a06b',
-};
-
-// Named places the missions, the HUD and the screenshots point at.
-// All of them sit on or just beside a road, so a car can reach them.
-export const LANDMARKS = {
-  garage: { x: 1400, y: 1180, name: 'Marlowe Motors' },
-  bank: { x: 2200, y: 470, name: 'Solmar Bank' },
-  hideout: { x: 600, y: 2380, name: 'Hideout' },
-  docks: { x: 4150, y: 900, name: 'The Docks' },
-  fountain: { x: 2600, y: 2000, name: 'Plaza Fountain' },
-  marina: { x: 4250, y: 1550, name: 'Marina' },
-  boardwalk: { x: 2200, y: 3180, name: 'Boardwalk' },
-  pier: { x: 3100, y: 3350, name: 'Pier' },
-};
-
+// Player.
 export const PLAYER = {
-  speed: 230,
-  radius: 14,
-  hp: 100,
-  startMoney: 150,
-  ammoMax: 60,
-  startAmmo: 24,
-  punchDamage: 25,
-  punchRange: 48,
-  punchCooldown: 0.45,
-  bulletDamage: 34,
-  fireCooldown: 0.22,
-  bulletSpeed: 720,
+  walkSpeed: 6, sprintSpeed: 10, jumpSpeed: 8, gravity: 22,
+  health: 100, armour: 0, startMoney: 150, radius: 0.6,
 };
 
-export const DRIVING = {
-  // Top speeds are in world units per second; handling is 0..1.
-  accel: 420,
-  brake: 700,
-  reverseAccel: 260,
-  drag: 0.55,
-  grip: 6.5,
-  turnRate: 2.6,
-  skidSpeed: 420,
-  crashDamage: 14,
-};
+// Car models: name, colour, top speed (m/s), accel, grip (turn), rare.
+export const CAR_MODELS = [
+  { name: 'Pinto', color: 0x7a8a7a, top: 24, accel: 14, grip: 2.4, rare: false },
+  { name: 'Comet', color: 0x3a6ab5, top: 28, accel: 16, grip: 2.6, rare: false },
+  { name: 'Falcon', color: 0xc23b2e, top: 36, accel: 20, grip: 3.0, rare: false },
+  { name: 'Bruiser', color: 0x5a5a5a, top: 22, accel: 12, grip: 2.0, rare: false },
+  { name: 'Cab', color: 0xe8b93a, top: 27, accel: 15, grip: 2.5, rare: false },
+  { name: 'Vagabond', color: 0x4a7a5a, top: 25, accel: 13, grip: 2.2, rare: false },
+  { name: 'Strider', color: 0xd4af37, top: 40, accel: 24, grip: 3.2, rare: true },
+  { name: 'Raptor', color: 0x1a1a2e, top: 44, accel: 26, grip: 3.4, rare: true },
+  { name: 'Sunset', color: 0xffb347, top: 42, accel: 25, grip: 3.3, rare: true },
+];
+export const PARKED_CARS = 26;
+export const CAR_REPAIR_COST = 120;
 
-export const WANTED = {
-  max: 5,
-  // Cruisers on the street per star level.
-  cruisers: [0, 1, 2, 3, 4, 4],
-  // Seconds out of every cruiser's sight before a star drops.
-  decaySeconds: 10,
-  sightRange: 520,
-  // How close a cruiser has to get before it starts shooting on foot.
-  shootRange: 340,
-  shootCooldown: 1.1,
-};
+// Traffic and pedestrians.
+export const TRAFFIC_CARS = 30;
+export const PEDESTRIANS = 48;
+export const TRAFFIC_SPEED = 9;
 
+// Police.
+export const WANTED_MAX = 5;
+export const POLICE_DECAY_TIME = 25; // seconds out of sight to lose a star
+export const CRUISER_COLOR = 0x1a2a4a;
+
+// Combat.
+export const WEAPONS = [
+  { name: 'Fists', key: '1', damage: 12, ammo: Infinity, rate: 0.45 },
+  { name: 'Pistol', key: '2', damage: 22, ammo: 60, rate: 0.28 },
+  { name: 'SMG', key: '3', damage: 12, ammo: 120, rate: 0.09 },
+  { name: 'Shotgun', key: '4', damage: 34, ammo: 24, rate: 0.8 },
+];
+export const PICKUPS = { ammo: 24, armour: 40, cash: 25 };
+
+// Missions: id, act, name, reward money, reward rank points, timed (seconds, 0 = not timed).
+export const MISSIONS = [
+  { id: 1, act: 1, name: 'New in Town', money: 200, rank: 40, time: 0 },
+  { id: 2, act: 1, name: 'Borrowed Wheels', money: 250, rank: 50, time: 0 },
+  { id: 3, act: 1, name: 'The Drop', money: 300, rank: 50, time: 150 },
+  { id: 4, act: 1, name: 'Breakers on the Boardwalk', money: 400, rank: 70, time: 0 },
+  { id: 5, act: 2, name: 'Taxi for Rosa', money: 350, rank: 60, time: 120 },
+  { id: 6, act: 2, name: 'The Courier Run', money: 450, rank: 70, time: 240 },
+  { id: 7, act: 2, name: 'Harbour Lights', money: 600, rank: 80, time: 0 },
+  { id: 8, act: 2, name: 'The Solmar Score', money: 1200, rank: 120, time: 0 },
+  { id: 9, act: 3, name: 'Night Shift', money: 700, rank: 90, time: 300 },
+  { id: 10, act: 3, name: "The Rival's Offer", money: 500, rank: 90, time: 0 },
+  { id: 11, act: 3, name: 'The Docks', money: 900, rank: 120, time: 0 },
+  { id: 12, act: 3, name: 'King of Solmar', money: 2500, rank: 200, time: 0 },
+];
+export const ACT_NAMES = { 1: 'Act I — New in Town', 2: 'Act II — Rising', 3: 'Act III — King of Solmar' };
+
+// Side jobs.
+export const PACKAGES = 12;
+export const PACKAGE_VALUE = 50;
+export const PACKAGE_BONUS = 500;
+export const JUMPS = 5;
+export const JUMP_VALUE = 100;
+export const FARE_BASE = 60;
+export const FARE_TIP = 40;
+
+// Rank ladder: title, points needed.
 export const RANKS = [
-  { name: 'Street Rat', points: 0 },
-  { name: 'Wheelman', points: 60 },
-  { name: 'Hustler', points: 150 },
-  { name: 'Made', points: 300 },
-  { name: 'King of Solmar', points: 600 },
+  { title: 'Street Rat', points: 0 },
+  { title: 'Wheelman', points: 100 },
+  { title: 'Hustler', points: 300 },
+  { title: 'Made', points: 600 },
+  { title: 'King of Solmar', points: 1000 },
 ];
 
-// Pay per story mission, in the order the missions run.
-export const MISSION_PAY = [200, 300, 400, 500, 250, 600, 800, 1500, 3000];
+// Day clock: game starts at golden late afternoon; a full day is 12 real minutes.
+export const DAY_LENGTH = 720; // seconds per full day
+export const START_HOUR = 17.5; // 17:30, golden late afternoon
+export const SUNSET_HOUR = 18.6;
+export const NIGHT_HOUR = 20.5;
 
-// Rank points per story mission, in the same order.
-export const MISSION_POINTS = [20, 25, 30, 35, 40, 45, 50, 60, 100];
-
-export const SIDEJOBS = {
-  packageCount: 12,
-  packagePay: 50,
-  packageBonus: 500,
-  farePay: 80,
-  fareTipPerSecond: 2,
-  fareCooldown: 12,
+// Colours.
+export const COLORS = {
+  skyDay: 0x9fc8e8, skySunset: 0xf7b267, skyNight: 0x1a2340,
+  sunDay: 0xfff2d8, sunSunset: 0xff9a3c, sunNight: 0x8a9cc8,
+  water: 0x2e6f9e, waterDeep: 0x1e4a6e,
+  sand: 0xe8d8a8, grass: 0x6a9a4a, asphalt: 0x3a3a40, pavement: 0xb8b8b0,
+  wood: 0x8a6a42, boardwalk: 0xa8825a,
 };
-
-export const TRAFFIC_COUNT = 30;
-export const PED_COUNT = 48;
-export const PARKED_COUNT = 14;

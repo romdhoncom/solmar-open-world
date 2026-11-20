@@ -1,47 +1,55 @@
-// Street rank: the progression ladder. Points come from missions,
-// fares, packages and escapes; each rung is a name the HUD shows with
-// a progress bar, and reaching Made unlocks a gold Sunset by the marina.
+// Solmar 3D — the street rank ladder and its rewards.
+// Written fresh in this session for the v5 rebuild (prose spec only).
+// Rank points come from missions, fares, packages, jumps and escapes.
+// Reaching Made unlocks a gold Sunset car parked by the marina.
 
 import { RANKS } from './config.js';
-import { makeGoldSunset } from './vehicles.js';
 
-export function createRank() {
-  return { points: 0, level: 0, goldSpawned: false };
-}
+export function createRank(G) {
+  let points = G.save.rankPoints || 0;
 
-/** The rank the player's points have earned. */
-export function rankLevel(points) {
-  let level = 0;
-  for (let i = 0; i < RANKS.length; i += 1) {
-    if (points >= RANKS[i].points) level = i;
-  }
-  return level;
-}
-
-/** The name of the player's current rank. */
-export function rankName(G) {
-  return RANKS[G.rank.level].name;
-}
-
-/** Progress to the next rank, 0..1 (1 when there is no next rank). */
-export function rankProgress(G) {
-  const level = G.rank.level;
-  if (level >= RANKS.length - 1) return 1;
-  const from = RANKS[level].points;
-  const to = RANKS[level + 1].points;
-  return Math.max(0, Math.min(1, (G.rank.points - from) / (to - from)));
-}
-
-/** Add rank points, and handle a rank-up (sound, and the gold car). */
-export function addRankPoints(G, n) {
-  G.rank.points += n;
-  const level = rankLevel(G.rank.points);
-  if (level > G.rank.level) {
-    G.rank.level = level;
-    G.audio.fanfare();
-    if (level >= 3 && !G.rank.goldSpawned) {
-      G.rank.goldSpawned = true;
-      G.cars.push(makeGoldSunset());
+  function level() {
+    let lv = 0;
+    for (let i = 0; i < RANKS.length; i++) {
+      if (points >= RANKS[i].points) lv = i;
     }
+    return lv;
   }
+
+  function title() {
+    return RANKS[level()].title;
+  }
+
+  function progress() {
+    const lv = level();
+    if (lv >= RANKS.length - 1) return 1;
+    const cur = RANKS[lv].points;
+    const next = RANKS[lv + 1].points;
+    return Math.max(0, Math.min(1, (points - cur) / (next - cur)));
+  }
+
+  function add(n) {
+    const before = level();
+    points += n;
+    G.save.rankPoints = points;
+    const after = level();
+    if (after > before) {
+      G.audio.fanfare();
+      G.hud.banner('RANK UP', `You are now ${RANKS[after].title}`);
+      if (RANKS[after].title === 'Made') {
+        // Unlock the gold Sunset by the marina.
+        const sunset = G.vehicles.list.find((c) => c.missionCar === 'sunset');
+        if (sunset) {
+          sunset.locked = false;
+          G.hud.banner('UNLOCKED', 'The gold Sunset by the marina is yours');
+        }
+      }
+    }
+    G.hud.setRank(level(), title(), progress(), points);
+  }
+
+  return {
+    get points() { return points; },
+    level, title, progress, add,
+  };
 }

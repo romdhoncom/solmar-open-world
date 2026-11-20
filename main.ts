@@ -1,19 +1,19 @@
-// Rebuilt from scratch in the v4 recording (2026-11-19): every file under
+// Rebuilt from scratch in the v5 recording (2026-11-21): every file under
 // game/ below was written fresh in this session from the prose spec alone.
 // Solmar for make.fun's gta6-01 (Node 22, standard library only): the
 // game is this directory's game/ folder — plain static files a desktop
-// browser loads offline (game/index.html and its ES modules, no library
-// and no network request) — and this program hands it in. It copies
-// game/ and screenshots/ from beside this file to /output and writes
-// /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library. Solmar is a 2D top-down open-world crime game: Dani
-// Vega explores a sun-soaked coastal city on foot and by car, steals
-// cars, outruns the police under a five-star wanted level, fights the
-// Breakers, and runs nine story missions — plus taxi fares, hidden
-// packages and a street rank that unlocks cars — with a HUD, a minimap
-// and a save.
+// browser loads offline (game/index.html and its ES modules, plus the
+// vendored Three.js library under game/vendor/, no other network request)
+// — and this program hands it in. It copies game/ and screenshots/ from
+// beside this file to /output and writes /output/dossier.json, the summary
+// the judge reads, with the vendored make.fun library. Solmar is a 3D
+// open-world crime game: Dani Vega explores a sun-soaked coastal city on
+// foot and by car, steals cars, outruns the police under a five-star
+// wanted level, fights Marco Vane's crew, and runs twelve story missions
+// in three acts — plus taxi fares, hidden packages, stunt jumps and a
+// street rank that unlocks cars — with a HUD, a minimap, a full map and
+// a save.
 //
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 
