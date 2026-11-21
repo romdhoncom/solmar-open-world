@@ -1,103 +1,136 @@
-// Car models: nine cars built from boxes in code, with driving physics,
-// a damage model, smoke when wrecked, and repair at Marlowe Motors.
-
+// Nine car models, built from boxes in code, plus arcade driving physics.
 import * as THREE from 'three';
-import { CARS } from './config.js';
-import { resolveCollisions } from './world.js';
 
-export function buildCarMesh(model, isPolice = false) {
+export const CAR_MODELS = [
+  { name: 'Pinto', color: 0x8a8f96, top: 22, accel: 14, grip: 2.6 },
+  { name: 'Comet', color: 0xd23c2e, top: 30, accel: 18, grip: 3.0 },
+  { name: 'Falcon', color: 0x2e5fd2, top: 32, accel: 19, grip: 3.2 },
+  { name: 'Taxi', color: 0xf2c200, top: 26, accel: 15, grip: 2.8 },
+  { name: 'Van', color: 0xe8e8e8, top: 20, accel: 12, grip: 2.4 },
+  { name: 'Sunset', color: 0xe8912d, top: 34, accel: 20, grip: 3.1 },
+  { name: 'Strider', color: 0xd4af37, top: 38, accel: 22, grip: 3.4 },
+  { name: 'Raptor', color: 0x1a1a1a, top: 40, accel: 23, grip: 3.5 },
+  { name: 'Cruiser', color: 0x222831, top: 34, accel: 21, grip: 3.3 },
+];
+
+export function makeCarMesh(model, isPolice) {
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: model.color, roughness: 0.35, metalness: 0.35 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2, 0.7, 4.4), bodyMat);
-  body.position.y = 0.55;
+  const bodyMat = new THREE.MeshLambertMaterial({ color: model.color });
+  const glassMat = new THREE.MeshLambertMaterial({ color: 0x1a2a3a });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.75, 4.4), bodyMat);
+  body.position.y = 0.65;
   body.castShadow = true;
   g.add(body);
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.7, 0.6, 2.2),
-    new THREE.MeshStandardMaterial({ color: 0x1a2028, roughness: 0.15, metalness: 0.6 })
-  );
-  cabin.position.set(0, 1.15, -0.2);
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.65, 2.2), glassMat);
+  cabin.position.set(0, 1.3, -0.2);
   cabin.castShadow = true;
   g.add(cabin);
-  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.9 });
-  for (const [x, z] of [[-0.95, 1.5], [0.95, 1.5], [-0.95, -1.5], [0.95, -1.5]]) {
+  const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.35, 10);
+  const wheelMat = new THREE.MeshLambertMaterial({ color: 0x111111 });
+  const wheels = [];
+  for (const [wx, wz] of [[-1.05, 1.45], [1.05, 1.45], [-1.05, -1.45], [1.05, -1.45]]) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.rotation.z = Math.PI / 2;
-    w.position.set(x, 0.42, z);
+    w.position.set(wx, 0.42, wz);
     g.add(w);
+    wheels.push(w);
   }
-  const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff2b0, emissive: 0xffdf6a, emissiveIntensity: 0.7 });
-  for (const x of [-0.6, 0.6]) {
-    const l = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.1), lightMat);
-    l.position.set(x, 0.6, 2.22);
+  const lightMat = new THREE.MeshLambertMaterial({ color: 0xfff2c0, emissive: 0xaa8833 });
+  for (const lx of [-0.7, 0.7]) {
+    const l = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.25, 0.1), lightMat);
+    l.position.set(lx, 0.7, 2.22);
     g.add(l);
   }
   if (isPolice) {
-    const bar = new THREE.Mesh(
-      new THREE.BoxGeometry(1.2, 0.25, 0.5),
-      new THREE.MeshStandardMaterial({ color: 0x2233ff, emissive: 0x2244ff, emissiveIntensity: 1.2 })
-    );
-    bar.position.set(0, 1.55, -0.2);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 0.5),
+      new THREE.MeshLambertMaterial({ color: 0xff2222, emissive: 0x880000 }));
+    bar.position.set(0, 1.75, -0.2);
     g.add(bar);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(2.14, 0.4, 1.2),
+      new THREE.MeshLambertMaterial({ color: 0xf2f2f2 }));
+    door.position.set(0, 0.7, 0.3);
+    g.add(door);
   }
-  g.userData.model = model;
-  return g;
+  return { group: g, wheels };
 }
 
-export class Car {
-  constructor(scene, model, x, z, heading = 0, isPolice = false) {
-    this.model = model;
-    this.mesh = buildCarMesh(model, isPolice);
-    this.mesh.position.set(x, 0, z);
-    this.mesh.rotation.y = heading;
-    scene.add(this.mesh);
-    this.x = x; this.z = z; this.heading = heading;
-    this.speed = 0;
-    this.damage = 0; // 0..100, wrecked at 100
-    this.isPolice = isPolice;
-    this.smoke = null;
+export function createCar(model, x, z, heading, opts) {
+  const o = opts || {};
+  const { group, wheels } = makeCarMesh(model, !!o.police);
+  group.position.set(x, 0, z);
+  group.rotation.y = heading || 0;
+  return {
+    mesh: group, wheels, model,
+    x, z, heading: heading || 0,
+    speed: 0, steer: 0,
+    damage: 0, wrecked: false,
+    isPlayer: false, isPolice: !!o.police, isTraffic: !!o.traffic,
+    smoke: null, smokeT: 0,
+    hornT: 0,
+  };
+}
+
+export function damageCar(car, amount, G) {
+  if (car.wrecked) return;
+  car.damage += amount;
+  if (car.damage >= 55 && !car.smoke) {
+    const s = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9, 8, 6),
+      new THREE.MeshLambertMaterial({ color: 0x777777, transparent: true, opacity: 0.7 }),
+    );
+    s.position.set(0, 1.6, 1.2);
+    car.mesh.add(s);
+    car.smoke = s;
   }
-
-  get wrecked() { return this.damage >= 100; }
-
-  drive(axis, dt, world, audio) {
-    if (this.wrecked) { this.speed *= 0.9; return { crashed: false, speed: 0 }; }
-    const top = this.model.top * (1 - this.damage / 250);
-    const accel = this.model.accel;
-    if (axis.z < 0) this.speed += accel * dt;
-    else if (axis.z > 0) this.speed -= accel * 0.7 * dt;
-    else this.speed -= Math.sign(this.speed) * 6 * dt;
-    if (axis.handbrake) this.speed -= Math.sign(this.speed) * 26 * dt;
-    this.speed = Math.max(-top * 0.4, Math.min(top, this.speed));
-    if (Math.abs(this.speed) < 0.05) this.speed = 0;
-    const steer = (axis.x || 0) * this.model.grip * 0.55 * Math.min(1, Math.abs(this.speed) / 8);
-    this.heading -= steer * dt * Math.sign(this.speed || 1);
-    const nx = this.x + Math.sin(this.heading) * this.speed * dt;
-    const nz = this.z + Math.cos(this.heading) * this.speed * dt;
-    const [rx, rz] = resolveCollisions(world, nx, nz, 2.2);
-    if ((rx !== nx || rz !== nz) && Math.abs(this.speed) > 6) {
-      this.damage += Math.abs(this.speed) * 0.6;
-      this.speed *= 0.4;
-      if (audio) { audio.crash(); }
-      return { crashed: true, speed: Math.abs(this.speed) };
-    }
-    this.x = rx; this.z = rz;
-    this.mesh.position.set(this.x, 0, this.z);
-    this.mesh.rotation.y = this.heading;
-    if (audio) audio.setEngine(Math.abs(this.speed) / this.model.top);
-    if (this.damage > 55 && !this.smoke) {
-      const s = new THREE.Mesh(
-        new THREE.ConeGeometry(0.8, 2.2, 8),
-        new THREE.MeshStandardMaterial({ color: 0x777777, transparent: true, opacity: 0.55 })
-      );
-      s.position.set(0, 1.8, -0.5);
-      this.mesh.add(s);
-      this.smoke = s;
-    }
-    if (this.smoke) this.smoke.rotation.y += dt * 3;
-    return { crashed: false, speed: Math.abs(this.speed) };
+  if (car.damage >= 100) {
+    car.wrecked = true;
+    car.speed = 0;
+    if (car === G.player.car) G.hud.showBanner('CAR WRECKED', 'Get it repaired at Marlowe Motors');
   }
+}
 
-  repair(cost) { this.damage = 0; if (this.smoke) { this.mesh.remove(this.smoke); this.smoke = null; } return cost; }
+export function updatePlayerCar(car, input, dt, G) {
+  if (!car) return;
+  const m = car.model;
+  const fwd = input.down('KeyW') || input.down('ArrowUp');
+  const back = input.down('KeyS') || input.down('ArrowDown');
+  const left = input.down('KeyA') || input.down('ArrowLeft');
+  const right = input.down('KeyD') || input.down('ArrowRight');
+  const brake = input.down('Space');
+  if (fwd) car.speed += m.accel * dt;
+  if (back) car.speed -= m.accel * 0.7 * dt;
+  if (!fwd && !back) car.speed *= Math.pow(0.4, dt);
+  if (brake) car.speed *= Math.pow(0.05, dt);
+  car.speed = Math.max(-m.top * 0.4, Math.min(m.top, car.speed));
+  const steerTarget = (left ? 1 : 0) - (right ? 1 : 0);
+  car.steer += (steerTarget - car.steer) * Math.min(1, dt * 8);
+  const turn = car.steer * m.grip * dt * Math.min(1, Math.abs(car.speed) / 8) * Math.sign(car.speed || 1);
+  car.heading += turn;
+  const nx = car.x + Math.sin(car.heading) * car.speed * dt;
+  const nz = car.z + Math.cos(car.heading) * car.speed * dt;
+  // Bridge: the channel is crossed on the deck (y stays 0; the deck is visual).
+  const hit = G.world.collide(nx, nz, 1.6);
+  const moved = Math.hypot(hit.x - car.x, hit.z - car.z);
+  if (moved < Math.abs(car.speed) * dt * 0.5 && Math.abs(car.speed) > 6) {
+    // Crashed into a building: damage, sparks, shake, stop.
+    damageCar(car, 12, G);
+    G.audio.crash();
+    G.shake = 0.5;
+    car.speed *= 0.3;
+  }
+  car.x = hit.x; car.z = hit.z;
+  // Skid marks + screech on hard turns at speed.
+  if (Math.abs(car.steer) > 0.7 && Math.abs(car.speed) > 14) {
+    G.audio.skid();
+    G.render.addSkid(car.x, car.z);
+  }
+  car.mesh.position.set(car.x, 0, car.z);
+  car.mesh.rotation.y = car.heading;
+  for (const w of car.wheels) w.rotation.x += car.speed * dt * 2;
+  if (car.smoke) {
+    car.smokeT += dt;
+    car.smoke.position.y = 1.6 + Math.sin(car.smokeT * 6) * 0.3;
+    car.smoke.scale.setScalar(1 + Math.sin(car.smokeT * 4) * 0.2);
+  }
+  G.audio.engine(Math.abs(car.speed) / m.top);
 }

@@ -1,56 +1,55 @@
-// Keyboard and mouse state, plus a tiny queue of "pressed this frame"
-// keys so actions (enter car, pause, map) fire once per press.
-
+// Keyboard and mouse state. Pointer lock gives mouse-look; without it the
+// mouse still orbits while dragging.
 export class Input {
-  constructor() {
+  constructor(canvas) {
     this.keys = new Set();
-    this.pressed = new Set();
-    this.mouseDX = 0;
-    this.mouseDY = 0;
+    this.lookDX = 0;
+    this.lookDY = 0;
     this.mouseDown = false;
     this.mouseClicked = false;
-    this.locked = false;
-    this.onKey = null; // (code) => void, for menu shortcuts
-  }
-
-  attach(canvas) {
-    addEventListener('keydown', (e) => {
-      if (e.repeat) return;
+    this.dragging = false;
+    this.canvas = canvas;
+    window.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
       this.keys.add(e.code);
-      this.pressed.add(e.code);
-      if (this.onKey) this.onKey(e.code);
-      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
-    addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
+    window.addEventListener('blur', () => this.keys.clear());
+    canvas.addEventListener('click', () => {
+      if (document.pointerLockElement !== canvas) {
+        try { canvas.requestPointerLock(); } catch (e) { /* headless */ }
+      }
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (document.pointerLockElement === canvas || this.dragging) {
+        this.lookDX += e.movementX || 0;
+        this.lookDY += e.movementY || 0;
+      }
+    });
     canvas.addEventListener('mousedown', (e) => {
-      this.mouseDown = true;
-      this.mouseClicked = true;
-      if (document.pointerLockElement !== canvas) canvas.requestPointerLock?.();
+      this.dragging = true;
+      if (e.button === 0) { this.mouseDown = true; this.mouseClicked = true; }
     });
-    addEventListener('mouseup', () => { this.mouseDown = false; });
-    document.addEventListener('pointerlockchange', () => {
-      this.locked = document.pointerLockElement === canvas;
+    window.addEventListener('mouseup', (e) => {
+      this.dragging = false;
+      if (e.button === 0) this.mouseDown = false;
     });
-    addEventListener('mousemove', (e) => {
-      if (this.locked) { this.mouseDX += e.movementX; this.mouseDY += e.movementY; }
-    });
-    addEventListener('contextmenu', (e) => e.preventDefault());
   }
-
   down(code) { return this.keys.has(code); }
-  wasPressed(code) { return this.pressed.has(code); }
-  axis() {
-    let x = 0, z = 0;
-    if (this.down('KeyW') || this.down('ArrowUp')) z -= 1;
-    if (this.down('KeyS') || this.down('ArrowDown')) z += 1;
-    if (this.down('KeyA') || this.down('ArrowLeft')) x -= 1;
-    if (this.down('KeyD') || this.down('ArrowRight')) x += 1;
-    return { x, z, handbrake: this.down('Space') };
+  // Consume the accumulated mouse-look delta for this frame.
+  consumeLook() {
+    const r = { dx: this.lookDX, dy: this.lookDY };
+    this.lookDX = 0; this.lookDY = 0;
+    return r;
   }
-  endFrame() {
-    this.pressed.clear();
-    this.mouseDX = 0; this.mouseDY = 0;
+  consumeClick() {
+    const c = this.mouseClicked;
     this.mouseClicked = false;
+    return c;
   }
+  // For scripted playtests: press and release keys from code.
+  press(code) { this.keys.add(code); }
+  release(code) { this.keys.delete(code); }
+  click() { this.mouseClicked = true; this.mouseDown = true; setTimeout(() => { this.mouseDown = false; }, 60); }
 }

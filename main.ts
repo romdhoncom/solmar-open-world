@@ -1,4 +1,4 @@
-// Solmar v6 — rebuilt in this session from the prose spec alone.
+// Solmar v7 — rebuilt in this session from the prose spec alone.
 // Every file under game/ was written fresh here: a 3D open-world crime
 // game on Three.js (vendored under game/vendor/). Dani explores a
 // sun-soaked coastal city on foot and by car, steals cars, outruns the

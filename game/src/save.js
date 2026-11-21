@@ -1,33 +1,26 @@
-// Save to localStorage: money, missions, kills, fares, packages, jumps,
-// rank. Loading an older save format (v1, without armour) still works.
-
-import { SAVE_KEY } from './config.js';
-
-export function defaultSave() {
-  return {
-    version: 2, money: 150, missionsDone: 0, kills: 0, fares: 0,
-    packages: [], jumps: [], rankPoints: 0, armour: 0, health: 100,
-  };
-}
-
-export function loadSave() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return defaultSave();
-    const s = JSON.parse(raw);
-    const d = defaultSave();
-    // v1 saves had no armour field and stored packages as a count.
-    if (typeof s.packages === 'number') s.packages = [];
-    return { ...d, ...s, version: 2 };
-  } catch {
-    return defaultSave();
-  }
-}
-
-export function storeSave(save) {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* private mode */ }
-}
-
-export function clearSave() {
-  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
-}
+// Save to localStorage. Tolerant of older save formats.
+const KEY = 'solmar-save-v2';
+export const Save = {
+  load() {
+    try {
+      const raw = localStorage.getItem(KEY) || localStorage.getItem('solmar-save-v1');
+      if (!raw) return null;
+      const d = JSON.parse(raw);
+      return {
+        money: typeof d.money === 'number' ? d.money : 150,
+        missions: typeof d.missions === 'number' ? d.missions : 0,
+        kills: d.kills || 0,
+        fares: d.fares || 0,
+        packages: Array.isArray(d.packages) ? d.packages : [],
+        jumps: Array.isArray(d.jumps) ? d.jumps : [],
+        rp: typeof d.rp === 'number' ? d.rp : 0,
+      };
+    } catch (e) { return null; }
+  },
+  save(data) {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+  },
+  clear() {
+    try { localStorage.removeItem(KEY); localStorage.removeItem('solmar-save-v1'); } catch (e) { /* ignore */ }
+  },
+};

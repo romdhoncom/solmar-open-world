@@ -1,58 +1,95 @@
-// Draws each frame: the 3D scene, the third-person camera, lighting and
-// the day/night cycle. The camera follows behind Dani, orbits with the
-// mouse, and pulls back and up when driving.
-
+// Draws each frame: renderer, camera, sun/sky by time of day, effects.
 import * as THREE from 'three';
 
-export class Render {
-  constructor(scene, camera) {
-    this.scene = scene;
-    this.camera = camera;
-    this.camYaw = Math.PI; // behind the player, looking north
-    this.camPitch = 0.32;
-    this.camDist = 9;
-    this.shakeSeed = 0;
-    this.shakeT = 99;
-  }
+export function createRenderer(G) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  document.getElementById('app').appendChild(renderer.domElement);
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+  const sun = new THREE.DirectionalLight(0xffd9a0, 2.2);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -260; sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260; sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.far = 800;
+  G.scene.add(sun);
+  G.scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 0.95));
+  G.scene.add(new THREE.AmbientLight(0x555566, 0.55));
+  const skids = [];
+  const dayCol = new THREE.Color(0x87b5d6);
+  const duskCol = new THREE.Color(0xe8915a);
+  const nightCol = new THREE.Color(0x0e1626);
 
-  addShake(seed) { this.shakeSeed = seed; this.shakeT = 0; }
-
-  // Sun position and sky colour for an hour of the day.
-  updateDayNight(world, hour, dt) {
-    const t = ((hour - 6) / 18); // 0 at 06:00, 1 at 24:00
-    const sunA = Math.PI * (0.15 + t * 0.7);
-    world.sun.position.set(Math.cos(sunA) * 200, Math.sin(sunA) * 160 + 20, 80);
-    const day = Math.max(0, Math.sin(sunA));
-    const dusk = Math.max(0, 1 - Math.abs(hour - 18.5) / 2.5);
-    world.sun.intensity = 0.4 + day * 1.8;
-    world.hemi.intensity = 0.35 + day * 0.55;
-    const sky = new THREE.Color().setHSL(0.08 + day * 0.02, 0.75, 0.32 + day * 0.25 - dusk * 0.05);
-    this.scene.background = sky;
-    this.scene.fog.color.copy(sky);
-    const lampOn = hour > 18.2 || hour < 6.5;
-    if (world.lampMat) world.lampMat.emissiveIntensity = lampOn ? 1.6 : 0.2;
-  }
-
-  update(dt, g, time) {
-    const inCar = !!g.car;
-    const targetDist = inCar ? (g.camFar ? 14 : 11) : 9;
-    this.camDist += (targetDist - this.camDist) * Math.min(1, dt * 4);
-    const px = g.player.x, pz = g.player.z;
-    const py = g.player.y + (inCar ? 1.2 : 1.8);
-    // Camera sits behind the player at camYaw, looking at the player.
-    const cx = px - Math.sin(this.camYaw) * this.camDist;
-    const cz = pz - Math.cos(this.camYaw) * this.camDist;
-    const cy = py + Math.sin(this.camPitch) * this.camDist + 1.2;
-    let ox = 0, oy = 0;
-    if (this.shakeT < 1) {
-      this.shakeT += dt * 2;
-      const r = Math.sin(this.shakeSeed * 12.9898 + this.shakeT * 40) * (1 - this.shakeT) * 0.5;
-      ox = r; oy = r * 0.6;
+  function updateSky() {
+    // Sun angle: 07:00 sunrise, 19:00 sunset, so the golden hour lasts.
+    const ang = ((G.time - 7) / 12) * Math.PI;
+    const elev = Math.sin(ang);
+    sun.position.set(Math.cos(ang) * 220, Math.max(18, elev * 220), 90);
+    sun.intensity = 0.6 + 1.8 * Math.max(0, elev);
+    sun.color.setHex(elev < 0.25 ? 0xffb36b : 0xffe0b0);
+    const bg = new THREE.Color();
+    if (elev >= 0.3) bg.copy(dayCol);
+    else if (elev > 0) bg.copy(duskCol).lerp(dayCol, elev / 0.3);
+    else bg.copy(nightCol).lerp(duskCol, Math.max(0, elev + 0.25) / 0.25);
+    G.scene.background = bg;
+    const night = G.time >= 19 || G.time < 6;
+    for (const lamp of G.world.lamps) {
+      lamp.material.emissive.setHex(night ? 0xffc84a : 0x000000);
     }
-    this.camera.position.set(cx + ox, Math.max(1.2, cy + oy), cz);
-    // Shots may override the look target (e.g. to include a helicopter).
-    const look = g.shotLook;
-    if (look) this.camera.lookAt(look.x, look.y, look.z);
-    else this.camera.lookAt(px, py + 0.5, pz);
+    // Water shimmer.
+    for (let i = 0; i < G.world.waves.length; i++) {
+      const w = G.world.waves[i];
+      w.position.x += Math.sin(G.now * 0.3 + i * 1.7) * 0.02;
+      w.material.opacity = 0.25 + 0.15 * Math.sin(G.now * 0.7 + i);
+    }
   }
+
+  return {
+    renderer, camera,
+    addSkid(x, z) {
+      const s = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.5, 2.2),
+        new THREE.MeshBasicMaterial({ color: 0x1a1a1a, transparent: true, opacity: 0.55 }),
+      );
+      s.rotation.x = -Math.PI / 2;
+      s.rotation.z = G.player.car ? G.player.car.heading : 0;
+      s.position.set(x, 0.07, z);
+      G.scene.add(s);
+      skids.push(s);
+      if (skids.length > 120) {
+        const old = skids.shift();
+        G.scene.remove(old);
+      }
+    },
+    update(dt) {
+      updateSky();
+      const p = G.player;
+      const tx = p.car ? p.car.x : p.x;
+      const tz = p.car ? p.car.z : p.z;
+      const ty = p.car ? 0 : p.y;
+      // Camera: third person behind the player, mouse orbit.
+      const dist = p.car ? (G.camFar ? 15 : 10) : 7.5;
+      const height = 2.6 + dist * 0.16 - G.camPitch * 3;
+      const fx = Math.sin(G.camYaw), fz = Math.cos(G.camYaw);
+      let cx = tx - fx * dist;
+      let cz = tz - fz * dist;
+      let cy = ty + height;
+      // Keep the camera inside the island.
+      cx = Math.max(-215, Math.min(215, cx));
+      cz = Math.max(-215, Math.min(215, cz));
+      if (G.shake > 0) {
+        cx += (G.rng.next() - 0.5) * G.shake;
+        cy += (G.rng.next() - 0.5) * G.shake;
+        cz += (G.rng.next() - 0.5) * G.shake;
+        G.shake = Math.max(0, G.shake - dt * 2.2);
+      }
+      camera.position.set(cx, cy, cz);
+      camera.lookAt(tx + fx * 4, ty + 1.4 - G.camPitch * 2, tz + fz * 4);
+      renderer.render(G.scene, camera);
+    },
+  };
 }

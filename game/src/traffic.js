@@ -1,118 +1,130 @@
-// Traffic cars that follow the road grid and pedestrians on the pavements.
-// Both react simply: they slow or step aside when the player drives at
-// them, and they flee when shots are fired nearby.
-
+// Traffic cars driving the grid and pedestrians on the pavements.
 import * as THREE from 'three';
-import { ROADS, CARS } from './config.js';
-import { makeRng } from './random.js';
-import { buildCarMesh } from './vehicles.js';
+import { CAR_MODELS, createCar } from './vehicles.js';
 
-const PALETTE = [0xd8d0c0, 0xc22e2e, 0x2e6ac2, 0x2ec2a8, 0xd8a13c, 0x8a8f96, 0xe86ab0, 0x3a3f46];
-
-export class Traffic {
-  constructor(scene, seed) {
-    this.rng = makeRng(seed + 77);
-    this.cars = [];
-    this.peds = [];
-    this.scene = scene;
-    for (let i = 0; i < 30; i++) this.spawnCar();
-    for (let i = 0; i < 48; i++) this.spawnPed();
+export function createTraffic(G) {
+  const list = [];
+  for (let i = 0; i < 30; i++) {
+    const model = G.rng.pick(CAR_MODELS.filter((m) => m.name !== 'Cruiser'));
+    const axis = G.rng.chance(0.5) ? 'x' : 'z';
+    const line = G.rng.pick(G.world.roads);
+    const pos = G.rng.range(-180, 180);
+    const dir = G.rng.chance(0.5) ? 1 : -1;
+    const x = axis === 'x' ? pos : line + (dir > 0 ? 3 : -3);
+    const z = axis === 'x' ? line + (dir > 0 ? -3 : 3) : pos;
+    const heading = axis === 'x' ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
+    const car = createCar(model, x, z, heading, { traffic: true });
+    car.speed = G.rng.range(8, 13);
+    G.scene.add(car.mesh);
+    G.cars.push(car);
+    list.push({ car, axis, line, dir, speed: car.speed });
   }
+  return list;
+}
 
-  spawnCar() {
-    const horiz = this.rng.chance(0.5);
-    const road = this.rng.pick(ROADS);
-    const along = this.rng.range(-180, 180);
-    const model = { ...this.rng.pick(CARS), color: this.rng.pick(PALETTE) };
-    const mesh = buildCarMesh(model);
-    const dir = this.rng.chance(0.5) ? 1 : -1;
-    const x = horiz ? along : road + (dir > 0 ? 3 : -3);
-    const z = horiz ? road + (dir > 0 ? 3 : -3) : along;
-    mesh.position.set(x, 0, z);
-    mesh.rotation.y = horiz ? (dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (dir > 0 ? 0 : Math.PI);
-    this.scene.add(mesh);
-    this.cars.push({
-      mesh, model, x, z, horiz, road, dir,
-      speed: this.rng.range(8, 14), slowUntil: 0,
-    });
+export function updateTraffic(dt, G) {
+  const p = G.player;
+  const px = p.car ? p.car.x : p.x;
+  const pz = p.car ? p.car.z : p.z;
+  for (const t of G.traffic) {
+    const c = t.car;
+    // Slow down for the player ahead.
+    const dx = px - c.x, dz = pz - c.z;
+    const ahead = Math.sin(c.heading) * dx + Math.cos(c.heading) * dz;
+    const dist = Math.hypot(dx, dz);
+    let sp = t.speed;
+    if (ahead > 0 && dist < 12) sp = Math.max(0, t.speed * (dist / 12));
+    c.speed = sp;
+    c.x += Math.sin(c.heading) * c.speed * dt;
+    c.z += Math.cos(c.heading) * c.speed * dt;
+    // Turn at an intersection sometimes, or wrap at the island edge.
+    const along = t.axis === 'x' ? c.x : c.z;
+    if (Math.abs(along) > 185) {
+      if (t.axis === 'x') c.x = -Math.sign(along) * 185; else c.z = -Math.sign(along) * 185;
+    }
+    for (const r of G.world.roads) {
+      const near = Math.abs(along - r) < 1.2;
+      if (near && G.rng.chance(dt * 0.12)) {
+        // Turn onto the crossing road.
+        const newAxis = t.axis === 'x' ? 'z' : 'x';
+        const newDir = G.rng.chance(0.5) ? 1 : -1;
+        t.axis = newAxis;
+        t.dir = newDir;
+        t.line = r;
+        c.heading = newAxis === 'x' ? (newDir > 0 ? Math.PI / 2 : -Math.PI / 2) : (newDir > 0 ? 0 : Math.PI);
+        if (newAxis === 'x') { c.z = r + (newDir > 0 ? -3 : 3); } else { c.x = r + (newDir > 0 ? 3 : -3); }
+        break;
+      }
+    }
+    c.mesh.position.set(c.x, 0, c.z);
+    c.mesh.rotation.y = c.heading;
   }
+}
 
-  spawnPed() {
+const PED_COLORS = [0xe8b4b8, 0x7fb069, 0x4a6fa5, 0xf2c200, 0x9c4a2f, 0xe8e8e8, 0x6a4a8a];
+
+export function createPeds(G) {
+  const list = [];
+  for (let i = 0; i < 48; i++) {
     const g = new THREE.Group();
-    const shirt = new THREE.MeshStandardMaterial({ color: this.rng.pick(PALETTE), roughness: 0.9 });
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.35, 0.8, 3, 6), shirt);
-    body.position.y = 1.1;
+    const color = G.rng.pick(PED_COLORS);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 1.1, 6),
+      new THREE.MeshLambertMaterial({ color }));
+    body.position.y = 0.85;
     body.castShadow = true;
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.28, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0xd8a080, roughness: 0.8 })
-    );
-    head.position.y = 1.95;
-    g.add(body); g.add(head);
-    const x = this.rng.range(-180, 180);
-    const z = this.rng.range(-180, 180);
+    g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 6),
+      new THREE.MeshLambertMaterial({ color: 0xd9a066 }));
+    head.position.y = 1.7;
+    g.add(head);
+    const x = G.rng.range(-170, 170);
+    const z = G.rng.range(-170, 170);
     g.position.set(x, 0, z);
-    this.scene.add(g);
-    this.peds.push({
-      group: g, x, z,
-      tx: x + this.rng.range(-40, 40), tz: z + this.rng.range(-40, 40),
-      speed: this.rng.range(1.2, 2.2), fleeUntil: 0, fleeX: 0, fleeZ: 0,
+    G.scene.add(g);
+    list.push({
+      mesh: g, x, z, heading: G.rng.range(0, Math.PI * 2),
+      speed: G.rng.range(1.2, 2.4),
+      tx: G.rng.range(-170, 170), tz: G.rng.range(-170, 170),
+      flee: false,
     });
   }
+  return list;
+}
 
-  update(dt, playerPos, gunshotAt, time) {
-    for (const c of this.cars) {
-      let speed = c.speed;
-      if (time < c.slowUntil) speed *= 0.25;
-      const dx = playerPos.x - c.x, dz = playerPos.z - c.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 14 && c.speed > 0) { // slow for the player in the way
-        const ahead = c.horiz ? dx * c.dir : dz * c.dir;
-        if (ahead > 0 && ahead < 14) speed *= 0.2;
-      }
-      if (gunshotAt) {
-        const gd = Math.hypot(gunshotAt.x - c.x, gunshotAt.z - c.z);
-        if (gd < 30) speed = c.speed * 1.6; // traffic flees gunfire
-      }
-      if (c.horiz) {
-        c.x += c.dir * speed * dt;
-        if (c.x > 186) c.x = -186; else if (c.x < -186) c.x = 186;
+export function updatePeds(dt, G) {
+  const px = G.player.car ? G.player.car.x : G.player.x;
+  const pz = G.player.car ? G.player.car.z : G.player.z;
+  for (const p of G.peds) {
+    const d = Math.hypot(px - p.x, pz - p.z);
+    if (G.shotFired && d < 25) p.flee = true;
+    if (p.flee) {
+      // Run away from the player.
+      const a = Math.atan2(p.x - px, p.z - pz);
+      p.x += Math.sin(a) * 5 * dt;
+      p.z += Math.cos(a) * 5 * dt;
+      p.heading = a;
+      if (d > 45) p.flee = false;
+    } else {
+      const dx = p.tx - p.x, dz = p.tz - p.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < 2) {
+        p.tx = G.rng.range(-170, 170);
+        p.tz = G.rng.range(-170, 170);
       } else {
-        c.z += c.dir * speed * dt;
-        if (c.z > 186) c.z = -186; else if (c.z < -186) c.z = 186;
-      }
-      c.mesh.position.set(c.x, 0, c.z);
-    }
-    for (const p of this.peds) {
-      let tx = p.tx, tz = p.tz;
-      if (time < p.fleeUntil) { tx = p.fleeX; tz = p.fleeZ; }
-      const dx = tx - p.x, dz = tz - p.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 0.5) {
-        p.tx = p.x + this.rng.range(-50, 50);
-        p.tz = p.z + this.rng.range(-50, 50);
-        p.tx = Math.max(-200, Math.min(200, p.tx));
-        p.tz = Math.max(-200, Math.min(200, p.tz));
-        continue;
-      }
-      const sp = time < p.fleeUntil ? p.speed * 2.6 : p.speed;
-      p.x += (dx / d) * sp * dt;
-      p.z += (dz / d) * sp * dt;
-      p.group.position.set(p.x, 0, p.z);
-      p.group.rotation.y = Math.atan2(dx, dz);
-      p.group.position.y = Math.abs(Math.sin(time * 6 + p.x)) * 0.06; // walking bob
-    }
-  }
-
-  fleeFrom(x, z, time) {
-    for (const p of this.peds) {
-      const d = Math.hypot(p.x - x, p.z - z);
-      if (d < 26) {
-        p.fleeUntil = time + 3;
-        const a = Math.atan2(p.z - z, p.x - x);
-        p.fleeX = p.x + Math.cos(a) * 40;
-        p.fleeZ = p.z + Math.sin(a) * 40;
+        p.heading = Math.atan2(dx, dz);
+        p.x += Math.sin(p.heading) * p.speed * dt;
+        p.z += Math.cos(p.heading) * p.speed * dt;
       }
     }
+    // Hit by the player's car: wanted up, ped falls and gets up.
+    if (G.player.car && d < 2.2) {
+      G.police.addWanted(1, 'hit a pedestrian');
+      p.x += Math.sin(p.heading) * 6;
+      p.z += Math.cos(p.heading) * 6;
+      p.tx = G.rng.range(-170, 170);
+      p.tz = G.rng.range(-170, 170);
+    }
+    p.mesh.position.set(p.x, Math.abs(Math.sin(G.now * 6 + p.x)) * 0.05, p.z);
+    p.mesh.rotation.y = p.heading;
   }
 }

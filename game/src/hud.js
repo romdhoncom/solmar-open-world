@@ -1,199 +1,216 @@
-// The HUD: mission box, clock/money/wanted, rank and weapon slots,
-// location + minimap + health/armour, banners, start screen, pause menu
-// with MAP / MISSIONS / CONTROLS / SAVE tabs, full city map, mission list.
+// HUD: mission box, clock/money/stars, rank + weapons, minimap, menus.
+import { CFG } from './config.js';
 
-import { WEAPONS, RANKS } from './config.js';
-import { MISSIONS } from './missions.js';
-import { districtAt, streetAt } from './world.js';
+export function createHUD(G) {
+  const root = document.getElementById('hud');
+  root.innerHTML = `
+    <div id="mission-box" class="panel"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-stage"></div><div id="mission-timer"></div></div>
+    <div id="top-right" class="panel"><div id="clock">17:24</div><div id="money">$150</div><div id="stars"></div></div>
+    <div id="rank-box" class="panel"><div id="rank-title">Street Rat</div><div id="rank-bar"><div id="rank-fill"></div></div><div id="weapons"></div></div>
+    <div id="bottom-left" class="panel"><div id="location">Downtown</div><div id="street"></div><canvas id="minimap" width="150" height="150"></canvas><div id="health-row"><div class="bar"><div id="health-fill"></div></div><div class="bar armour"><div id="armour-fill"></div></div></div><div id="rep-row"><span>REP</span><div class="bar rep"><div id="rep-fill"></div></div></div></div>
+    <div id="banner"><div id="banner-title"></div><div id="banner-sub"></div></div>
+    <div id="act-title"></div>
+    <div id="crosshair">+</div>
+    <div id="damage-flash"></div>
+    <div id="start-screen"><div class="start-inner"><h1>SOLMAR</h1><p class="tag">A sun-soaked city. Twelve missions. One crown.</p><p class="controls">WASD move · Mouse look · Shift sprint · Space jump / handbrake<br>F punch · E enter car · Click shoot · 1–4 weapons · C camera · H horn<br>M map · L missions · N mute · Esc pause</p><button id="start-btn">START</button><p class="save-note">Progress is saved automatically on this device.</p></div></div>
+    <div id="pause-menu" class="hidden"><div class="pause-inner"><h2>PAUSED</h2><div class="tabs"><button data-tab="map" class="tab active">MAP</button><button data-tab="missions" class="tab">MISSIONS</button><button data-tab="controls" class="tab">CONTROLS</button><button data-tab="save" class="tab">SAVE</button></div><div id="tab-map" class="tab-page"><canvas id="fullmap" width="520" height="520"></canvas></div><div id="tab-missions" class="tab-page hidden"><ol id="mission-list"></ol></div><div id="tab-controls" class="tab-page hidden"><p>WASD move · Mouse look · Shift sprint · Space jump / handbrake<br>F punch · E enter car · Click shoot · 1–4 weapons · C camera · H horn<br>M map · L missions · N mute · Esc pause</p></div><div id="tab-save" class="tab-page hidden"><p id="save-info"></p><button id="save-now">SAVE NOW</button> <button id="save-clear">CLEAR SAVE</button></div><button id="resume-btn">RESUME</button></div></div>
+    <div id="complete-screen" class="hidden"><div class="start-inner"><h1>KING OF SOLMAR</h1><p class="tag">The city is yours, Dani.</p><p id="complete-stats"></p><button id="again-btn">PLAY AGAIN</button></div></div>
+  `;
+  const el = (id) => document.getElementById(id);
+  const hud = {
+    setMission(name, obj, stage) {
+      el('mission-name').textContent = name || '';
+      el('mission-obj').textContent = obj || '';
+      el('mission-stage').textContent = stage || '';
+      el('mission-box').style.display = name ? 'block' : 'none';
+    },
+    setTimer(t) {
+      el('mission-timer').textContent = t == null ? '' : '⏱ ' + t + 's';
+    },
+    showBanner(title, sub) {
+      el('banner-title').textContent = title;
+      el('banner-sub').textContent = sub || '';
+      const b = el('banner');
+      b.classList.add('show');
+      clearTimeout(this._bt);
+      this._bt = setTimeout(() => b.classList.remove('show'), 3200);
+      const sr = document.getElementById('sr-status');
+      if (sr) sr.textContent = title + (sub ? '. ' + sub : '');
+    },
+    showAct(title) {
+      const a = el('act-title');
+      a.textContent = title;
+      a.classList.add('show');
+      setTimeout(() => a.classList.remove('show'), 3000);
+    },
+    flashDamage() {
+      const f = el('damage-flash');
+      f.classList.add('show');
+      setTimeout(() => f.classList.remove('show'), 250);
+    },
+    showCompletion() {
+      el('complete-stats').textContent =
+        'Missions: 12 / 12 · Kills: ' + G.kills + ' · Fares: ' + G.fares +
+        ' · Packages: ' + G.sidejobs.packagesDone.size + ' / 12 · Money: $' + G.money;
+      el('complete-screen').classList.remove('hidden');
+    },
+    update() {
+      const p = G.player;
+      el('clock').textContent = fmtTime(G.time);
+      el('money').textContent = '$' + G.money;
+      const w = Math.floor(G.police.wanted);
+      el('stars').textContent = '★'.repeat(w) + '☆'.repeat(5 - w);
+      el('stars').style.color = w >= 4 ? '#ff5555' : '#ffd94a';
+      el('rank-title').textContent = G.rank.title() + ' · RP ' + G.rank.rp +
+        (G.rank.nextTitle() ? ' → ' + G.rank.nextTitle() : '');
+      el('rank-fill').style.width = Math.round(G.rank.progress() * 100) + '%';
+      el('weapons').innerHTML = p.weapons.map((wpn, i) =>
+        '<span class="' + (i === p.weapon ? 'sel' : '') + '">' + (i + 1) + ' ' + wpn.name +
+        (i === 0 ? '' : ' ' + (wpn.ammo === Infinity ? '∞' : wpn.ammo)) + '</span>').join(' ');
+      el('location').textContent = G.world.districtAt(p.car ? p.car.x : p.x, p.car ? p.car.z : p.z);
+      el('street').textContent = G.world.streetName(p.car ? p.car.x : p.x, p.car ? p.car.z : p.z);
+      el('health-fill').style.width = Math.max(0, p.health) + '%';
+      el('armour-fill').style.width = Math.max(0, p.armour) + '%';
+      el('rep-fill').style.width = Math.round(G.rank.progress() * 100) + '%';
+      el('crosshair').style.display = (G.state === 'playing' && p.weapon > 0 && !p.car) ? 'block' : 'none';
+      this.drawMinimap();
+      if (!el('pause-menu').classList.contains('hidden')) this.drawFullmap();
+    },
+    drawMinimap() {
+      const c = el('minimap');
+      const ctx = c.getContext('2d');
+      const S = 150, W = 440;
+      const to = (v) => ((v + W / 2) / W) * S;
+      ctx.fillStyle = '#1c2b33';
+      ctx.fillRect(0, 0, S, S);
+      ctx.fillStyle = '#3f7d8c';
+      ctx.fillRect(to(150), 0, S - to(150), S); // harbour water
+      ctx.fillStyle = '#e6d3a3';
+      ctx.fillRect(0, to(168), S, S - to(168)); // beach
+      ctx.strokeStyle = '#555';
+      ctx.lineWidth = 3;
+      for (const r of CFG.roads) {
+        ctx.beginPath(); ctx.moveTo(to(r), 0); ctx.lineTo(to(r), S); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, to(r)); ctx.lineTo(S, to(r)); ctx.stroke();
+      }
+      const p = G.player;
+      const px = p.car ? p.car.x : p.x;
+      const pz = p.car ? p.car.z : p.z;
+      if (G.marker) {
+        ctx.fillStyle = '#ffe066';
+        const mx = to(G.marker.x), my = to(G.marker.z);
+        ctx.beginPath(); ctx.moveTo(mx, my - 6); ctx.lineTo(mx + 5, my + 4); ctx.lineTo(mx - 5, my + 4); ctx.fill();
+      }
+      for (const e of G.enemies) {
+        ctx.fillStyle = '#c05ad9';
+        ctx.fillRect(to(e.x) - 2, to(e.z) - 2, 4, 4);
+      }
+      for (const cr of G.police.cruisers) {
+        ctx.fillStyle = '#4a90d9';
+        ctx.fillRect(to(cr.x) - 2, to(cr.z) - 2, 4, 4);
+      }
+      if (G.police.heli) {
+        ctx.fillStyle = '#ff5555';
+        ctx.fillRect(to(G.police.heli.mesh.position.x) - 2, to(G.police.heli.mesh.position.z) - 2, 4, 4);
+      }
+      ctx.save();
+      ctx.translate(to(px), to(pz));
+      ctx.rotate(p.car ? p.car.heading : p.heading);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(4, 5); ctx.lineTo(-4, 5); ctx.fill();
+      ctx.restore();
+    },
+    drawFullmap() {
+      const c = el('fullmap');
+      const ctx = c.getContext('2d');
+      const S = 520, W = 440;
+      const to = (v) => ((v + W / 2) / W) * S;
+      ctx.fillStyle = '#22303a';
+      ctx.fillRect(0, 0, S, S);
+      ctx.fillStyle = '#3f7d8c';
+      ctx.fillRect(to(150), 0, S - to(150), S);
+      ctx.fillStyle = '#e6d3a3';
+      ctx.fillRect(0, to(168), S, S - to(168));
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 5;
+      for (const r of CFG.roads) {
+        ctx.beginPath(); ctx.moveTo(to(r), 0); ctx.lineTo(to(r), S); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, to(r)); ctx.lineTo(S, to(r)); ctx.stroke();
+      }
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = '#fff';
+      const spots = G.world.spots;
+      const labels = [
+        ['Marlowe Motors (garage)', spots.garage], ['Bank', spots.bank],
+        ['Hospital', spots.hospital], ['Hideout', spots.hideout],
+        ['Marina', spots.marina], ['Police station', spots.police],
+        ['Pier', spots.pier], ['Lighthouse', [196, -146]],
+      ];
+      for (const [label, pt] of labels) {
+        ctx.fillStyle = '#ffe066';
+        ctx.beginPath(); ctx.arc(to(pt[0]), to(pt[1]), 6, 0, 7); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillText(label, to(pt[0]) + 9, to(pt[1]) + 5);
+      }
+      ctx.font = '15px sans-serif';
+      ctx.fillStyle = '#cfe8ef';
+      ctx.fillText('Downtown', to(0), to(-37));
+      ctx.fillText('Beach District', to(-60), to(185));
+      ctx.fillText('Market Quarter', to(-112), to(-37));
+      ctx.fillText('Hills', to(0), to(-150));
+      ctx.fillText('Marina', to(180), to(-80));
+      const p = G.player;
+      const px = p.car ? p.car.x : p.x;
+      const pz = p.car ? p.car.z : p.z;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(to(px), to(pz), 7, 0, 7); ctx.fill();
+      if (G.marker) {
+        ctx.strokeStyle = '#ffe066';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(to(G.marker.x), to(G.marker.z), 12, 0, 7); ctx.stroke();
+      }
+    },
+    openPause() {
+      G.state = 'paused';
+      el('pause-menu').classList.remove('hidden');
+      const list = el('mission-list');
+      list.innerHTML = G.missions.list.map((m, i) =>
+        '<li class="' + (i === G.missions.idx ? 'cur' : '') + '">' + (i < G.missions.idx ? '✓ ' : '') +
+        'Act ' + m.act + ' — ' + m.name + '</li>').join('');
+      el('save-info').textContent = 'Money $' + G.money + ' · Missions ' + G.missions.idx + ' / 12 · RP ' + G.rank.rp;
+      this.drawFullmap();
+    },
+    closePause() {
+      el('pause-menu').classList.add('hidden');
+      if (G.state === 'paused') G.state = 'playing';
+    },
+  };
 
-export class Hud {
-  constructor(game) {
-    this.game = game;
-    this.root = document.getElementById('hud');
-    this.buildDom();
-    this.mapOpen = false;
-    this.missionsOpen = false;
-    this.paused = false;
-    this.bannerTimer = 0;
-  }
-
-  buildDom() {
-    this.root.innerHTML = `
-    <div id="mission-box" class="panel"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-timer"></div></div>
-    <div id="stats" class="panel"><div id="clock">18:00</div><div id="money">$150</div><div id="stars"></div></div>
-    <div id="rank-box" class="panel"><div id="rank-title">Street Rat (Lv 1)</div><div class="bar"><div id="rank-fill"></div></div><div id="weapons"></div></div>
-    <div id="loc-box" class="panel"><div id="location">Downtown</div><canvas id="minimap" width="180" height="180"></canvas><div class="bar hp"><div id="hp-fill"></div></div><div class="bar ar"><div id="ar-fill"></div></div></div>
-    <div id="banner"></div><div id="act-title"></div>
-    <div id="toast"></div>
-    <div id="start-screen"><h1>SOLMAR</h1><p class="tag">A 3D open-world crime game — become the King of Solmar.</p>
-      <p class="controls">WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Space jump<br>
-      F punch &nbsp;·&nbsp; E enter car &nbsp;·&nbsp; Click shoot &nbsp;·&nbsp; 1–4 weapons &nbsp;·&nbsp; R reload<br>
-      H horn &nbsp;·&nbsp; C camera &nbsp;·&nbsp; M map &nbsp;·&nbsp; L missions &nbsp;·&nbsp; Esc pause</p>
-      <button id="start-btn">START</button>
-      <p class="save-note">Progress is saved automatically on this device.</p></div>
-    <div id="pause-menu" class="hidden"><h2>PAUSED</h2>
-      <div class="tabs"><button data-tab="map">MAP</button><button data-tab="missions">MISSIONS</button><button data-tab="controls">CONTROLS</button><button data-tab="save">SAVE</button></div>
-      <div id="tab-map" class="tab"><canvas id="bigmap" width="520" height="520"></canvas></div>
-      <div id="tab-missions" class="tab hidden"><ol id="mission-list"></ol></div>
-      <div id="tab-controls" class="tab hidden"><p>WASD move · Mouse look · Shift sprint · Space jump<br>F punch · E enter/exit car · Click shoot · R reload<br>1–4 weapon slots · H horn · Space handbrake (in car)<br>C camera · M map · L mission list · Esc pause</p></div>
-      <div id="tab-save" class="tab hidden"><p id="save-info"></p><button id="save-btn">SAVE NOW</button> <button id="reset-btn">NEW GAME</button></div>
-      <button id="resume-btn">RESUME</button></div>
-    <div id="complete-screen" class="hidden"><h1>KING OF SOLMAR</h1><p>You own this city now.</p><button id="again-btn">KEEP PLAYING</button></div>
-    <div id="dead-screen" class="hidden"><h1>BUSTED</h1><p>Dani is down. The city keeps moving.</p><button id="retry-btn">TRY AGAIN</button></div>`;
-    this.el = {};
-    for (const id of ['mission-name', 'mission-obj', 'mission-timer', 'clock', 'money', 'stars', 'rank-title', 'rank-fill', 'weapons', 'location', 'hp-fill', 'ar-fill', 'banner', 'act-title', 'toast', 'start-screen', 'pause-menu', 'complete-screen', 'dead-screen', 'mission-list', 'save-info']) {
-      this.el[id] = document.getElementById(id);
-    }
-    this.minimap = document.getElementById('minimap');
-    this.bigmap = document.getElementById('bigmap');
-    document.getElementById('start-btn').addEventListener('click', () => this.game.startGame());
-    document.getElementById('resume-btn').addEventListener('click', () => this.game.togglePause(false));
-    document.getElementById('again-btn').addEventListener('click', () => this.el['complete-screen'].classList.add('hidden'));
-    document.getElementById('retry-btn').addEventListener('click', () => this.game.respawn());
-    document.getElementById('save-btn').addEventListener('click', () => { this.game.saveNow(); this.toast('Saved.'); });
-    document.getElementById('reset-btn').addEventListener('click', () => { this.game.newGame(); });
-    this.root.querySelectorAll('.tabs button').forEach((b) => {
-      b.addEventListener('click', () => {
-        this.root.querySelectorAll('.tab').forEach((t) => t.classList.add('hidden'));
-        document.getElementById(`tab-${b.dataset.tab}`).classList.remove('hidden');
-        if (b.dataset.tab === 'missions') this.renderMissionList();
-        if (b.dataset.tab === 'save') this.el['save-info'].textContent = this.game.saveSummary();
-      });
+  el('start-btn').addEventListener('click', () => {
+    G.audio.ensure();
+    G.audio.startMusic();
+    el('start-screen').classList.add('hidden');
+    G.state = 'playing';
+    if (!G.missions.cur) G.missions.start(G.missions.idx);
+  });
+  el('resume-btn').addEventListener('click', () => hud.closePause());
+  el('again-btn').addEventListener('click', () => location.reload());
+  el('save-now').addEventListener('click', () => { G.saveGame(); el('save-info').textContent = 'Saved.'; });
+  el('save-clear').addEventListener('click', () => { G.clearSave(); location.reload(); });
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
+      document.querySelectorAll('.tab-page').forEach((x) => x.classList.add('hidden'));
+      t.classList.add('active');
+      el('tab-' + t.dataset.tab).classList.remove('hidden');
+      if (t.dataset.tab === 'map') hud.drawFullmap();
     });
-  }
+  });
+  return hud;
+}
 
-  renderMissionList() {
-    this.el['mission-list'].innerHTML = MISSIONS.map((m, i) => {
-      const state = i < this.game.missions.index ? 'done' : i === this.game.missions.index ? 'current' : 'locked';
-      return `<li class="${state}">Act ${m.act} — ${m.name} ${state === 'done' ? '✓' : ''}</li>`;
-    }).join('');
-  }
-
-  banner(text, sub = '') {
-    this.el.banner.innerHTML = `<strong>${text}</strong>${sub ? `<span>${sub}</span>` : ''}`;
-    this.el.banner.classList.add('show');
-    this.bannerTimer = 3;
-  }
-
-  actTitle(text) {
-    this.el['act-title'].textContent = text;
-    this.el['act-title'].classList.add('show');
-    setTimeout(() => this.el['act-title'].classList.remove('show'), 4000);
-  }
-
-  toast(text) {
-    this.el.toast.textContent = text;
-    this.el.toast.classList.add('show');
-    setTimeout(() => this.el.toast.classList.remove('show'), 2500);
-  }
-
-  update(dt, g) {
-    const p = g.player;
-    const m = g.missions;
-    this.el['mission-name'].textContent = m.done ? 'King of Solmar' : `${m.mission.name} — Act ${m.mission.act}`;
-    this.el['mission-obj'].textContent = m.objective;
-    this.el['mission-timer'].textContent = m.timerLeft > 0 ? `⏱ ${Math.ceil(m.timerLeft)}s` : '';
-    const h = Math.floor(g.hour), min = Math.floor((g.hour - h) * 60);
-    this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-    this.el.money.textContent = `$${p.money}`;
-    this.el.stars.innerHTML = '★'.repeat(g.police.wanted) + '<span class="dim">' + '★'.repeat(5 - g.police.wanted) + '</span>';
-    const r = g.rank;
-    this.el['rank-title'].textContent = `${r.title} (Lv ${r.level + 1})${r.nextTitle ? ` — ${Math.round(r.progress * 100)}% to ${r.nextTitle}` : ''}`;
-    this.el['rank-fill'].style.width = `${r.progress * 100}%`;
-    this.el.weapons.innerHTML = WEAPONS.map((w, i) => {
-      const ammo = w.ammo === Infinity ? '∞' : g.ammo[i + 1];
-      return `<div class="${g.weaponSlot === i + 1 ? 'sel' : ''}">${w.slot} ${w.name} (${ammo})</div>`;
-    }).join('');
-    const d = districtAt(p.x, p.z);
-    this.el.location.textContent = `${d.name} — ${streetAt(p.x, p.z)}`;
-    this.el['hp-fill'].style.width = `${p.health}%`;
-    this.el['ar-fill'].style.width = `${p.armour}%`;
-    if (this.bannerTimer > 0) {
-      this.bannerTimer -= dt;
-      if (this.bannerTimer <= 0) this.el.banner.classList.remove('show');
-    }
-    this.drawMinimap(g);
-    if (this.mapOpen) this.drawBigMap(g);
-  }
-
-  drawMinimap(g) {
-    const c = this.minimap.getContext('2d');
-    const S = 180, H = 480;
-    c.fillStyle = '#0c1a12';
-    c.fillRect(0, 0, S, S);
-    c.strokeStyle = '#4a5a4a';
-    c.lineWidth = 2;
-    for (const r of [-180, -120, -60, 0, 60, 120, 180]) {
-      const v = ((r + H / 2) / H) * S;
-      c.beginPath(); c.moveTo(v, 0); c.lineTo(v, S); c.stroke();
-      c.beginPath(); c.moveTo(0, v); c.lineTo(S, v); c.stroke();
-    }
-    const px = ((g.player.x + H / 2) / H) * S;
-    const pz = ((g.player.z + H / 2) / H) * S;
-    const mark = (x, z, color, r = 4) => {
-      c.fillStyle = color;
-      c.beginPath();
-      c.arc(((x + H / 2) / H) * S, ((z + H / 2) / H) * S, r, 0, Math.PI * 2);
-      c.fill();
-    };
-    const step = g.missions.currentStep;
-    if (step && (step.x !== undefined)) mark(step.x, step.z, '#f2c200', 5);
-    if (step && step.px !== undefined) mark(step.pickedUp ? step.dx : step.px, step.pickedUp ? step.dz : step.pz, '#2ec22e', 5);
-    mark(0, 120, '#7ec8ff', 3); // safehouse
-    for (const cr of g.police.cruisers) mark(cr.x, cr.z, '#ff4444', 3);
-    if (g.police.heli) mark(g.police.heli.x, g.police.heli.z, '#ff8844', 3);
-    // Player arrow.
-    c.save();
-    c.translate(px, pz);
-    c.rotate(-g.camYaw);
-    c.fillStyle = '#ffffff';
-    c.beginPath(); c.moveTo(0, -7); c.lineTo(5, 6); c.lineTo(-5, 6); c.closePath(); c.fill();
-    c.restore();
-  }
-
-  drawBigMap(g) {
-    const c = this.bigmap.getContext('2d');
-    const S = 520, H = 480;
-    c.fillStyle = '#101a14';
-    c.fillRect(0, 0, S, S);
-    // Districts.
-    const cols = { downtown: '#3a2a1a', beach: '#5a4a2a', market: '#4a2a1a', hills: '#2a3a4a', harbour: '#1a3a4a' };
-    for (const [key, d] of Object.entries({ downtown: { x0: -90, z0: -90, x1: 90, z1: 90 }, beach: { x0: -240, z0: 90, x1: 240, z1: 240 }, market: { x0: -240, z0: -90, x1: -90, z1: 90 }, hills: { x0: -90, z0: -240, x1: 240, z1: -90 }, harbour: { x0: 90, z0: -90, x1: 240, z1: 90 } })) {
-      c.fillStyle = cols[key];
-      c.fillRect(((d.x0 + H / 2) / H) * S, ((d.z0 + H / 2) / H) * S, ((d.x1 - d.x0) / H) * S, ((d.z1 - d.z0) / H) * S);
-    }
-    c.strokeStyle = '#6a7a6a';
-    c.lineWidth = 3;
-    for (const r of [-180, -120, -60, 0, 60, 120, 180]) {
-      const v = ((r + H / 2) / H) * S;
-      c.beginPath(); c.moveTo(v, 0); c.lineTo(v, S); c.stroke();
-      c.beginPath(); c.moveTo(0, v); c.lineTo(S, v); c.stroke();
-    }
-    const mark = (x, z, label, color) => {
-      const mx = ((x + H / 2) / H) * S, mz = ((z + H / 2) / H) * S;
-      c.fillStyle = color;
-      c.beginPath(); c.arc(mx, mz, 6, 0, Math.PI * 2); c.fill();
-      c.fillStyle = '#fff';
-      c.font = '13px sans-serif';
-      c.fillText(label, mx + 9, mz + 4);
-    };
-    mark(-60, 60, 'Garage', '#f2c200');
-    mark(60, -60, 'Hospital', '#ff8888');
-    mark(0, 120, 'Safehouse', '#7ec8ff');
-    mark(0, 0, 'Bank', '#ffd24a');
-    mark(180, 90, 'Marina', '#7ec8ff');
-    mark(120, -60, 'Police', '#ff4444');
-    mark(-120, 120, 'Hideout', '#b07eff');
-    const step = g.missions.currentStep;
-    if (step && step.x !== undefined) mark(step.x, step.z, 'Next mission', '#ffffff');
-    mark(g.player.x, g.player.z, 'You', '#ffffff');
-  }
-
-  showStart() { this.el['start-screen'].classList.remove('hidden'); }
-  hideStart() { this.el['start-screen'].classList.add('hidden'); }
-  showPause() { this.el['pause-menu'].classList.remove('hidden'); }
-  hidePause() { this.el['pause-menu'].classList.add('hidden'); this.mapOpen = false; }
-  showComplete() { this.el['complete-screen'].classList.remove('hidden'); }
-  showDead() { this.el['dead-screen'].classList.remove('hidden'); }
-  hideDead() { this.el['dead-screen'].classList.add('hidden'); }
+function fmtTime(h) {
+  const hh = Math.floor(h) % 24;
+  const mm = Math.floor((h - Math.floor(h)) * 60);
+  return String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
 }

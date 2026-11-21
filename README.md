@@ -4,84 +4,85 @@
 
 # Solmar — a 3D open-world crime game
 
-Solmar is a 3D open-world crime game that runs in a desktop browser from
-static files — no build step, no network. You are Dani, a newcomer to a
-sun-soaked coastal island city, and your goal is to become the King of
-Solmar. Steal cars, outrun the police under a five-star wanted level,
-fight Marco Vane's crew, and run twelve story missions in three acts.
+![Solmar cover](screenshots/1-chase.jpg)
+
+**Solmar** is a 3D open-world crime game that plays in a desktop browser
+from static files — no network, no install. You are **Dani Vega**, a
+newcomer trying to become **King of Solmar**, a sun-soaked coastal city
+on an island, with a beach, a harbour and marina, a lighthouse on the
+headland, and a bridge over the harbour channel.
 
 ## How to play
 
-Open `game/index.html` in a desktop browser. Click START, then:
+Open `game/index.html` in a desktop browser (or serve the `game/`
+folder with any static server). Click **START**.
 
-- **WASD** — move (on foot) or drive (in a car), camera-relative
-- **Mouse** — look around (click the game to lock the mouse)
-- **Shift** — sprint · **Space** — jump (on foot) or handbrake (in a car)
-- **F** — punch · **E** — enter or leave a car
-- **Click** — shoot · **1–4** — weapon slots (fists, pistol, SMG, shotgun) · **R** — reload
-- **H** — horn · **C** — camera near/far
-- **M** — full city map · **L** — mission list · **Esc** — pause
-
-Progress is saved automatically on this device.
+- **W A S D** move (relative to the camera) · **Mouse** orbit the camera
+- **Shift** sprint · **Space** jump (on foot) / handbrake (driving)
+- **F** punch · **E** enter / leave a car · **Click** shoot
+- **1–4** weapons (fists, pistol, SMG, shotgun) · **C** camera near / far
+- **H** horn · **M** full map · **L** mission list · **N** mute · **Esc** pause
 
 ## The city
 
-Solmar is a road-grid island city with five districts: downtown with
-terracotta roofs, a beach district with pastel roofs along the sand, a
-market quarter, slate-roofed hills, and a harbour with a marina, boats
-and a lighthouse on the headland. A bridge crosses the harbour channel,
-a boardwalk runs along the beach, and a pier reaches into the sea. The
-day starts in golden late afternoon and the sun sets as you play;
-street lamps turn on at dusk. Traffic cars drive the grid and
-pedestrians walk the pavements; both react when shots are fired.
+A road grid of five avenues and five streets, with districts of their
+own: downtown with warm terracotta roofs, a beach district with pale
+pastel roofs along the sand, a market quarter with brick roofs, hills
+with slate roofs, and a marina and harbour district with boats in the
+water. One block in six is a park with trees. A boardwalk runs along
+the beach, a pier reaches into the sea, and the lighthouse watches over
+the harbour. The day advances slowly from a golden late afternoon;
+street lamps turn on as evening falls.
 
-## Cars and police
+## Cars, police, and the law
 
-Nine car models, each with its own name, colour, top speed and handling,
-built from the city itself: steal any parked car with E. Cars take
-damage in crashes and gunfights, smoke when badly damaged, and can be
-repaired at Marlowe Motors. Stealing cars, shooting and hitting
-pedestrians raise the wanted level from 0 to 5 stars: cruisers chase
-and ram, roadblocks appear at 4 stars, and a police helicopter circles
-at 5. Stay out of sight to cool down.
+Nine car models to steal and drive — from the humble Pinto to the rare
+gold Strider and the Raptor — each with its own speed and handling.
+Cars take damage, smoke when badly hurt, and a wrecked car must be
+repaired at Marlowe Motors. About 30 traffic cars and 48 pedestrians
+share the roads. Stealing, shooting and hitting pedestrians raise your
+wanted level from 0 to 5 stars: cruisers chase and ram you, roadblocks
+appear at 4 stars, and a police helicopter circles at 5 stars. Stay out
+of sight to cool down.
 
-## The 12 missions in 3 acts
+## Story: 12 missions in 3 acts
 
-- **Act I — New in Town:** New in Town, Borrowed Wheels, The Drop, Breakers on the Boardwalk
-- **Act II — Rising:** Taxi for Rosa, The Courier Run, Harbour Lights, The Solmar Score
-- **Act III — King of Solmar:** Night Shift, The Rival's Offer, The Docks, King of Solmar
-
-Each mission shows a banner, an objective on the HUD, a marker on the
-map and minimap, and a timer where it fits. Completing a mission pays
-money and unlocks the next.
+- **Act I — New in Town:** meet the contact at Marlowe Motors, steal
+  a car for the garage, run a timed drop, and fight the Breakers on the
+  boardwalk.
+- **Act II — Rising:** a timed taxi job for Rosa, a three-stop courier
+  run, stealing the gold Strider from the harbour, and the Solmar Score
+  — hold up the bank, then escape a 4-star chase.
+- **Act III — King of Solmar:** a night shipment run, refusing Marco
+  Vane's offer at the marina, the fight on the docks, and the finale —
+  escape a 5-star chase to the hideout and take the crown.
 
 ## Side jobs and rank
 
-Repeatable taxi fares pay plus a tip for speed. Twelve hidden packages
-are scattered around the city ($50 each, $500 bonus for all twelve).
-Five stunt jumps pay $100 each. Rank points from missions, fares,
-packages, jumps and escapes move you up the ladder — Street Rat,
-Wheelman, Hustler, Made, King of Solmar — and reaching Made unlocks the
-gold Sunset car parked by the marina.
+Repeatable taxi fares (with a tip for speed), 12 hidden packages worth
+$50 each ($500 bonus for all of them), and 5 stunt jumps worth $100.
+Everything earns rank points on the ladder Street Rat → Wheelman →
+Hustler → Made → King of Solmar. Reaching Made unlocks a gold Sunset
+car parked by the marina.
+
+Progress (money, missions, kills, fares, packages, jumps, rank) is
+saved automatically on this device.
 
 ## Sound
 
-All sound is synthesized in the browser: engine hum that rises with
-speed, police sirens, gunshots, a horn, skid screeches, fare chimes and
-a rank-up fanfare, over a simple looping music line. There is a mute
-toggle in the pause menu.
+All sound is synthesized in the browser — engine hum, police siren,
+gunshots, horn, skid screech, fare chimes, rank fanfares and a looping
+music line. No audio files.
+
+## Built with
+
+Three.js (vendored under `game/vendor/`), plain JavaScript modules,
+and the seeded world generator in `game/src/`. The world is generated
+once from a fixed seed, so it is the same on every run.
 
 ## Screenshots
 
-Four renders of the real game: a 4-star sunset chase, Dani on foot in
-the market plaza, a drive over the harbour bridge, and the finale
-shootout on the docks.
-
-## Tech
-
-Three.js 0.160.0, vendored under `game/vendor/`. All game code is plain
-JavaScript modules under `game/src/`, one file per system: world,
-player, vehicles, traffic, police, combat, missions, side jobs, rank,
-HUD, rendering, input, audio and save. `main.ts` at the repo root
-copies `game/` and `screenshots/` into the output directory and writes
-the dossier.
+1. `1-chase.jpg` — a 4-star escape at sunset
+2. `2-walk.jpg` — on foot in the market plaza
+3. `3-drive.jpg` — driving over the harbour bridge
+4. `4-mission.jpg` — the finale shootout on the docks
