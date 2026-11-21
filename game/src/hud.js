@@ -1,358 +1,199 @@
-// Solmar 3D — HUD panels, minimap, banners, menus, full map, mission list.
-// Written fresh in this session for the v5 rebuild (prose spec only).
-// All DOM is built here and appended to the page; the game canvas stays
-// underneath. The minimap is a 2D canvas drawn from the world each frame.
+// The HUD: mission box, clock/money/wanted, rank and weapon slots,
+// location + minimap + health/armour, banners, start screen, pause menu
+// with MAP / MISSIONS / CONTROLS / SAVE tabs, full city map, mission list.
 
-import { MISSIONS, ACT_NAMES, WEAPONS, RANKS } from './config.js';
+import { WEAPONS, RANKS } from './config.js';
+import { MISSIONS } from './missions.js';
+import { districtAt, streetAt } from './world.js';
 
-export function createHud(G) {
-  const doc = document;
-  function el(tag, cls, parent, text) {
-    const e = doc.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined) e.textContent = text;
-    if (parent) parent.appendChild(e);
-    return e;
+export class Hud {
+  constructor(game) {
+    this.game = game;
+    this.root = document.getElementById('hud');
+    this.buildDom();
+    this.mapOpen = false;
+    this.missionsOpen = false;
+    this.paused = false;
+    this.bannerTimer = 0;
   }
 
-  const root = el('div', 'hud', doc.body);
-  // Top-left: mission box.
-  const missionBox = el('div', 'panel mission-box', root);
-  const missionName = el('div', 'mission-name', missionBox, 'Solmar');
-  const missionObj = el('div', 'mission-obj', missionBox, 'Press Start to begin');
-  const missionHint = el('div', 'mission-hint', missionBox, '');
-  const missionTimer = el('div', 'mission-timer', missionBox, '');
-  // Top-right: clock, money, stars.
-  const topRight = el('div', 'panel top-right', root);
-  const clockEl = el('div', 'clock', topRight, '17:30');
-  const moneyEl = el('div', 'money', topRight, '$150');
-  const starsEl = el('div', 'stars', topRight, '☆☆☆☆☆');
-  // Right side: rank and weapons.
-  const rightPanel = el('div', 'panel right-panel', root);
-  const rankTitle = el('div', 'rank-title', rightPanel, 'Street Rat');
-  const rankBar = el('div', 'bar rank-bar', rightPanel);
-  const rankFill = el('div', 'fill', rankBar);
-  const rankPts = el('div', 'rank-pts', rightPanel, '0 pts');
-  const weaponBox = el('div', 'weapons', rightPanel);
-  const weaponSlots = WEAPONS.map((w, i) => {
-    const s = el('div', 'weapon', weaponBox, `${i + 1} ${w.name}`);
-    return s;
-  });
-  // Bottom-left: location, minimap, health/armour.
-  const bottomLeft = el('div', 'panel bottom-left', root);
-  const locationEl = el('div', 'location', bottomLeft, 'Solmar');
-  const minimap = el('canvas', 'minimap', bottomLeft);
-  minimap.width = 190; minimap.height = 190;
-  const mmCtx = minimap.getContext('2d');
-  const healthBar = el('div', 'bar health-bar', bottomLeft);
-  const healthFill = el('div', 'fill', healthBar);
-  const armourBar = el('div', 'bar armour-bar', bottomLeft);
-  const armourFill = el('div', 'fill', armourBar);
-  // Bottom-centre: act title. Centre: banner. Crosshair.
-  const actEl = el('div', 'act-title', root, '');
-  const bannerEl = el('div', 'banner', root, '');
-  const bannerSub = el('div', 'banner-sub', root, '');
-  const crosshair = el('div', 'crosshair', root, '+');
-  crosshair.style.display = 'none';
-
-  let marker = null; // {x, z, color}
-  let bannerT = 0;
-  let actT = 0;
-
-  // ---- start screen ----------------------------------------------------
-  const startScreen = el('div', 'overlay start-screen', doc.body);
-  el('h1', 'game-title', startScreen, 'SOLMAR');
-  el('div', 'tagline', startScreen, 'A newcomer. A city. A crown to take.');
-  el('div', 'controls-list', startScreen,
-    'W A S D move · Mouse look · Shift sprint · Space jump · F punch · E enter / leave car · Click shoot · 1-4 weapons · C camera · H horn · M map · L missions · Esc pause · Mute: N');
-  el('div', 'save-note', startScreen, 'Progress is saved automatically on this device.');
-  const startBtn = el('button', 'start-btn', startScreen, 'START');
-  startBtn.addEventListener('click', () => {
-    G.audio.unlock();
-    G.audio.startMusic();
-    startScreen.style.display = 'none';
-    G.startGame();
-  });
-
-  // ---- pause menu ------------------------------------------------------
-  const pauseMenu = el('div', 'overlay pause-menu', doc.body);
-  pauseMenu.style.display = 'none';
-  el('h2', '', pauseMenu, 'PAUSED');
-  const tabBar = el('div', 'tabs', pauseMenu);
-  const tabPanels = {};
-  const tabs = ['MAP', 'MISSIONS', 'CONTROLS', 'SAVE'];
-  const tabBtns = {};
-  for (const t of tabs) {
-    const b = el('button', 'tab', tabBar, t);
-    tabBtns[t] = b;
-    b.addEventListener('click', () => showTab(t));
-    const panel = el('div', 'tab-panel', pauseMenu);
-    panel.style.display = 'none';
-    tabPanels[t] = panel;
-  }
-  // MAP tab: full city map canvas.
-  const mapCanvas = el('canvas', 'fullmap', tabPanels.MAP);
-  mapCanvas.width = 620; mapCanvas.height = 620;
-  el('div', 'map-legend', tabPanels.MAP, 'Yellow = mission · Green = safehouse · Red = police · Blue = you');
-  // MISSIONS tab.
-  const missionList = el('div', 'mission-list', tabPanels.MISSIONS);
-  // CONTROLS tab.
-  el('div', '', tabPanels.CONTROLS,
-    'W A S D move / drive · Mouse orbit · Shift sprint · Space jump / handbrake · F punch · E enter / leave car · Click shoot · 1-4 weapons · C camera near / far · H horn · M map · L missions · N mute · Esc pause');
-  // SAVE tab.
-  const saveInfo = el('div', '', tabPanels.SAVE, '');
-  const saveBtn = el('button', 'save-btn', tabPanels.SAVE, 'SAVE NOW');
-  saveBtn.addEventListener('click', () => {
-    G.saveGame();
-    saveInfo.textContent = 'Saved.';
-  });
-  const resumeBtn = el('button', 'resume-btn', pauseMenu, 'RESUME');
-  resumeBtn.addEventListener('click', () => togglePause(false));
-
-  function showTab(t) {
-    for (const k of tabs) {
-      tabPanels[k].style.display = k === t ? 'block' : 'none';
-      tabBtns[k].classList.toggle('active', k === t);
+  buildDom() {
+    this.root.innerHTML = `
+    <div id="mission-box" class="panel"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-timer"></div></div>
+    <div id="stats" class="panel"><div id="clock">18:00</div><div id="money">$150</div><div id="stars"></div></div>
+    <div id="rank-box" class="panel"><div id="rank-title">Street Rat (Lv 1)</div><div class="bar"><div id="rank-fill"></div></div><div id="weapons"></div></div>
+    <div id="loc-box" class="panel"><div id="location">Downtown</div><canvas id="minimap" width="180" height="180"></canvas><div class="bar hp"><div id="hp-fill"></div></div><div class="bar ar"><div id="ar-fill"></div></div></div>
+    <div id="banner"></div><div id="act-title"></div>
+    <div id="toast"></div>
+    <div id="start-screen"><h1>SOLMAR</h1><p class="tag">A 3D open-world crime game — become the King of Solmar.</p>
+      <p class="controls">WASD move &nbsp;·&nbsp; Mouse look &nbsp;·&nbsp; Shift sprint &nbsp;·&nbsp; Space jump<br>
+      F punch &nbsp;·&nbsp; E enter car &nbsp;·&nbsp; Click shoot &nbsp;·&nbsp; 1–4 weapons &nbsp;·&nbsp; R reload<br>
+      H horn &nbsp;·&nbsp; C camera &nbsp;·&nbsp; M map &nbsp;·&nbsp; L missions &nbsp;·&nbsp; Esc pause</p>
+      <button id="start-btn">START</button>
+      <p class="save-note">Progress is saved automatically on this device.</p></div>
+    <div id="pause-menu" class="hidden"><h2>PAUSED</h2>
+      <div class="tabs"><button data-tab="map">MAP</button><button data-tab="missions">MISSIONS</button><button data-tab="controls">CONTROLS</button><button data-tab="save">SAVE</button></div>
+      <div id="tab-map" class="tab"><canvas id="bigmap" width="520" height="520"></canvas></div>
+      <div id="tab-missions" class="tab hidden"><ol id="mission-list"></ol></div>
+      <div id="tab-controls" class="tab hidden"><p>WASD move · Mouse look · Shift sprint · Space jump<br>F punch · E enter/exit car · Click shoot · R reload<br>1–4 weapon slots · H horn · Space handbrake (in car)<br>C camera · M map · L mission list · Esc pause</p></div>
+      <div id="tab-save" class="tab hidden"><p id="save-info"></p><button id="save-btn">SAVE NOW</button> <button id="reset-btn">NEW GAME</button></div>
+      <button id="resume-btn">RESUME</button></div>
+    <div id="complete-screen" class="hidden"><h1>KING OF SOLMAR</h1><p>You own this city now.</p><button id="again-btn">KEEP PLAYING</button></div>
+    <div id="dead-screen" class="hidden"><h1>BUSTED</h1><p>Dani is down. The city keeps moving.</p><button id="retry-btn">TRY AGAIN</button></div>`;
+    this.el = {};
+    for (const id of ['mission-name', 'mission-obj', 'mission-timer', 'clock', 'money', 'stars', 'rank-title', 'rank-fill', 'weapons', 'location', 'hp-fill', 'ar-fill', 'banner', 'act-title', 'toast', 'start-screen', 'pause-menu', 'complete-screen', 'dead-screen', 'mission-list', 'save-info']) {
+      this.el[id] = document.getElementById(id);
     }
-    if (t === 'MAP') drawFullMap();
-    if (t === 'MISSIONS') drawMissionList();
-    if (t === 'SAVE') saveInfo.textContent = `Money $${G.player.money} · Missions ${G.save.missionsDone.length}/12 · Rank ${G.rank.title()} · Packages ${G.save.packages.length}/12 · Fares ${G.save.fares}`;
-  }
-
-  function togglePause(force) {
-    const show = force !== undefined ? force : pauseMenu.style.display === 'none';
-    if (G.state !== 'playing' && show) return;
-    pauseMenu.style.display = show ? 'flex' : 'none';
-    G.state = show ? 'paused' : 'playing';
-    if (show) showTab('MAP');
-  }
-
-  // ---- completion screen ------------------------------------------------
-  const completeScreen = el('div', 'overlay complete-screen', doc.body);
-  completeScreen.style.display = 'none';
-  el('h1', 'game-title', completeScreen, 'KING OF SOLMAR');
-  el('div', 'tagline', completeScreen, 'Dani Vega owns the city. The crown is yours.');
-  const againBtn = el('button', 'start-btn', completeScreen, 'KEEP PLAYING');
-  againBtn.addEventListener('click', () => {
-    completeScreen.style.display = 'none';
-    G.state = 'playing';
-  });
-
-  // ---- drawing ----------------------------------------------------------
-  function mapXY(x, z, size) {
-    // World x -260..260, z -260..290 -> canvas.
-    const s = size / 560;
-    return [(x + 260) * s, (z + 260) * s];
-  }
-
-  function drawMinimap() {
-    const ctx = mmCtx;
-    const S = 190;
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = '#1a2a1a';
-    ctx.fillRect(0, 0, S, S);
-    ctx.fillStyle = '#3a5a3a';
-    ctx.fillRect(0, 0, S, S);
-    // Water around the island.
-    ctx.fillStyle = '#2e6f9e';
-    ctx.fillRect(0, 0, S, 3);
-    ctx.fillRect(0, S - 3, S, 3);
-    ctx.fillRect(S - 3, 0, 3, S);
-    // Roads.
-    ctx.strokeStyle = '#3a3a40';
-    ctx.lineWidth = 4;
-    const roadsX = [-160, -80, 0, 80, 160];
-    const roadsZ = [-160, -80, 0, 80, 160];
-    for (const x of roadsX) {
-      const [mx] = mapXY(x, 0, S);
-      ctx.beginPath(); ctx.moveTo(mx, mapXY(0, -170, S)[1]); ctx.lineTo(mx, mapXY(0, 170, S)[1]); ctx.stroke();
-    }
-    for (const z of roadsZ) {
-      const [, my] = mapXY(0, z, S);
-      ctx.beginPath(); ctx.moveTo(mapXY(-170, 0, S)[0], my); ctx.lineTo(mapXY(170, 0, S)[0], my); ctx.stroke();
-    }
-    // Safehouse.
-    const [hx, hy] = mapXY(G.world.places.safehouse.x, G.world.places.safehouse.z, S);
-    ctx.fillStyle = '#66ff66';
-    ctx.fillRect(hx - 3, hy - 3, 6, 6);
-    // Mission marker.
-    if (marker) {
-      const [mx, my] = mapXY(marker.x, marker.z, S);
-      ctx.fillStyle = '#ffd24a';
-      ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#000';
-      ctx.stroke();
-    }
-    // Police blips.
-    ctx.fillStyle = '#ff4444';
-    for (const c of G.police.cruisers) {
-      const [cx, cy] = mapXY(c.x, c.z, S);
-      ctx.beginPath(); ctx.arc(cx, cy, 3, 0, Math.PI * 2); ctx.fill();
-    }
-    if (G.police.heli) {
-      const [hx2, hy2] = mapXY(G.police.heli.position.x, G.police.heli.position.z, S);
-      ctx.fillStyle = '#ff8844';
-      ctx.beginPath(); ctx.arc(hx2, hy2, 4, 0, Math.PI * 2); ctx.fill();
-    }
-    // Player arrow.
-    const px = G.player.inCar ? G.player.inCar.x : G.player.x;
-    const pz = G.player.inCar ? G.player.inCar.z : G.player.z;
-    const [ax, ay] = mapXY(px, pz, S);
-    const heading = G.player.inCar ? G.player.inCar.heading : G.player.heading;
-    ctx.save();
-    ctx.translate(ax, ay);
-    ctx.rotate(-heading + Math.PI);
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill();
-    ctx.restore();
-  }
-
-  function drawFullMap() {
-    const ctx = mapCanvas.getContext('2d');
-    const S = 620;
-    ctx.clearRect(0, 0, S, S);
-    ctx.fillStyle = '#202a20';
-    ctx.fillRect(0, 0, S, S);
-    // Districts as tinted blocks.
-    const districtColors = { downtown: '#6a5a4a', beach: '#c8b898', market: '#7a4a3a', hills: '#4a5a6a', marina: '#3a5a7a' };
-    for (let gx = -200; gx < 200; gx += 80) {
-      for (let gz = -200; gz < 200; gz += 80) {
-        const d = G.world.districtAt(gx + 40, gz + 40);
-        const [x, y] = mapXY(gx, gz, S);
-        ctx.fillStyle = districtColors[d] || '#555';
-        ctx.fillRect(x, y, 80 * (S / 560), 80 * (S / 560));
-      }
-    }
-    // Roads.
-    ctx.strokeStyle = '#2a2a30';
-    ctx.lineWidth = 8;
-    for (const x of [-160, -80, 0, 80, 160]) {
-      const [mx] = mapXY(x, 0, S);
-      ctx.beginPath(); ctx.moveTo(mx, mapXY(0, -170, S)[1]); ctx.lineTo(mx, mapXY(0, 170, S)[1]); ctx.stroke();
-    }
-    for (const z of [-160, -80, 0, 80, 160]) {
-      const [, my] = mapXY(0, z, S);
-      ctx.beginPath(); ctx.moveTo(mapXY(-170, 0, S)[0], my); ctx.lineTo(mapXY(170, 0, S)[0], my); ctx.stroke();
-    }
-    // Place icons.
-    ctx.font = 'bold 15px sans-serif';
-    for (const [key, p] of Object.entries(G.world.places)) {
-      const [x, y] = mapXY(p.x, p.z, S);
-      ctx.fillStyle = '#ffd24a';
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff';
-      ctx.fillText(p.name, x + 10, y + 5);
-    }
-    // Next mission marker.
-    if (marker) {
-      const [mx, my] = mapXY(marker.x, marker.z, S);
-      ctx.fillStyle = '#ffd24a';
-      ctx.beginPath(); ctx.arc(mx, my, 10, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-    // Player.
-    const px = G.player.inCar ? G.player.inCar.x : G.player.x;
-    const pz = G.player.inCar ? G.player.inCar.z : G.player.z;
-    const [ax, ay] = mapXY(px, pz, S);
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath(); ctx.arc(ax, ay, 7, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.stroke();
-  }
-
-  function drawMissionList() {
-    missionList.innerHTML = '';
-    for (const m of MISSIONS) {
-      const done = G.save.missionsDone.includes(m.id);
-      const isCurrent = G.missions.current && G.missions.current.def.id === m.id;
-      const div = el('div', 'mission-row', missionList);
-      div.textContent = `${done ? '✓' : isCurrent ? '▶' : '·'} ${ACT_NAMES[m.act]} — ${m.name} (+$${m.money})`;
-      if (done) div.style.opacity = '0.6';
-      if (isCurrent) div.style.color = '#ffd24a';
-    }
-  }
-
-  // ---- public API -------------------------------------------------------
-  function banner(title, sub) {
-    bannerEl.textContent = title;
-    bannerSub.textContent = sub || '';
-    bannerEl.style.opacity = '1';
-    bannerSub.style.opacity = '1';
-    bannerT = 3;
-    const status = document.getElementById('status');
-    if (status) status.textContent = `${title}. ${sub || ''}`;
-  }
-
-  function actTitle(text) {
-    actEl.textContent = text;
-    actEl.style.opacity = '1';
-    actT = 4;
-  }
-
-  function update(dt) {
-    // Clock: hour from G.hour.
-    const h = Math.floor(G.hour);
-    const m = Math.floor((G.hour - h) * 60);
-    clockEl.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    moneyEl.textContent = `$${G.player.money}`;
-    const loc = G.world.streetAt(G.player.inCar ? G.player.inCar.x : G.player.x, G.player.inCar ? G.player.inCar.z : G.player.z);
-    const districtName = { downtown: 'Downtown', beach: 'Beach District', market: 'Market Quarter', hills: 'The Hills', marina: 'Marina' }[loc.district] || loc.district;
-    locationEl.textContent = `${districtName} — ${loc.street}`;
-    healthFill.style.width = `${Math.max(0, G.player.health)}%`;
-    armourFill.style.width = `${Math.max(0, G.player.armour)}%`;
-    // Weapon slots.
-    weaponSlots.forEach((s, i) => {
-      const ammo = G.player.ammo[i];
-      s.textContent = `${i + 1} ${WEAPONS[i].name}${ammo === Infinity ? '' : ` (${ammo})`}`;
-      s.classList.toggle('active', G.player.weapon === i);
+    this.minimap = document.getElementById('minimap');
+    this.bigmap = document.getElementById('bigmap');
+    document.getElementById('start-btn').addEventListener('click', () => this.game.startGame());
+    document.getElementById('resume-btn').addEventListener('click', () => this.game.togglePause(false));
+    document.getElementById('again-btn').addEventListener('click', () => this.el['complete-screen'].classList.add('hidden'));
+    document.getElementById('retry-btn').addEventListener('click', () => this.game.respawn());
+    document.getElementById('save-btn').addEventListener('click', () => { this.game.saveNow(); this.toast('Saved.'); });
+    document.getElementById('reset-btn').addEventListener('click', () => { this.game.newGame(); });
+    this.root.querySelectorAll('.tabs button').forEach((b) => {
+      b.addEventListener('click', () => {
+        this.root.querySelectorAll('.tab').forEach((t) => t.classList.add('hidden'));
+        document.getElementById(`tab-${b.dataset.tab}`).classList.remove('hidden');
+        if (b.dataset.tab === 'missions') this.renderMissionList();
+        if (b.dataset.tab === 'save') this.el['save-info'].textContent = this.game.saveSummary();
+      });
     });
-    // Crosshair: show on foot with a gun.
-    crosshair.style.display = (!G.player.inCar && G.player.weapon > 0 && G.state === 'playing') ? 'block' : 'none';
-    drawMinimap();
-    if (bannerT > 0) {
-      bannerT -= dt;
-      if (bannerT <= 0) {
-        bannerEl.style.opacity = '0';
-        bannerSub.style.opacity = '0';
-      }
-    }
-    if (actT > 0) {
-      actT -= dt;
-      if (actT <= 0) actEl.style.opacity = '0';
-    }
   }
 
-  return {
-    banner, actTitle, update, togglePause, showTab,
-    setObjective(name, text, hint) {
-      missionName.textContent = name || 'Solmar';
-      missionObj.textContent = text || '';
-      missionHint.textContent = hint || '';
-    },
-    setMission(name, act, stage) {
-      missionName.textContent = name || 'Solmar';
-    },
-    setTimer(seconds) {
-      missionTimer.textContent = seconds > 0 ? `⏱ ${Math.ceil(seconds)}s` : '';
-    },
-    setWanted(n) {
-      starsEl.textContent = '★'.repeat(n) + '☆'.repeat(5 - n);
-      starsEl.style.color = n > 0 ? '#ff4444' : '#fff';
-    },
-    setRank(level, title, progress, points) {
-      rankTitle.textContent = `${RANKS[level].title} (Lv ${level + 1})`;
-      rankFill.style.width = `${Math.round(progress * 100)}%`;
-      rankPts.textContent = `${points} pts`;
-    },
-    setMarker(x, z, color) {
-      marker = x === null ? null : { x, z, color };
-    },
-    showComplete() {
-      completeScreen.style.display = 'flex';
-    },
-    hideStart() { startScreen.style.display = 'none'; },
-    get paused() { return pauseMenu.style.display !== 'none'; },
-  };
+  renderMissionList() {
+    this.el['mission-list'].innerHTML = MISSIONS.map((m, i) => {
+      const state = i < this.game.missions.index ? 'done' : i === this.game.missions.index ? 'current' : 'locked';
+      return `<li class="${state}">Act ${m.act} — ${m.name} ${state === 'done' ? '✓' : ''}</li>`;
+    }).join('');
+  }
+
+  banner(text, sub = '') {
+    this.el.banner.innerHTML = `<strong>${text}</strong>${sub ? `<span>${sub}</span>` : ''}`;
+    this.el.banner.classList.add('show');
+    this.bannerTimer = 3;
+  }
+
+  actTitle(text) {
+    this.el['act-title'].textContent = text;
+    this.el['act-title'].classList.add('show');
+    setTimeout(() => this.el['act-title'].classList.remove('show'), 4000);
+  }
+
+  toast(text) {
+    this.el.toast.textContent = text;
+    this.el.toast.classList.add('show');
+    setTimeout(() => this.el.toast.classList.remove('show'), 2500);
+  }
+
+  update(dt, g) {
+    const p = g.player;
+    const m = g.missions;
+    this.el['mission-name'].textContent = m.done ? 'King of Solmar' : `${m.mission.name} — Act ${m.mission.act}`;
+    this.el['mission-obj'].textContent = m.objective;
+    this.el['mission-timer'].textContent = m.timerLeft > 0 ? `⏱ ${Math.ceil(m.timerLeft)}s` : '';
+    const h = Math.floor(g.hour), min = Math.floor((g.hour - h) * 60);
+    this.el.clock.textContent = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    this.el.money.textContent = `$${p.money}`;
+    this.el.stars.innerHTML = '★'.repeat(g.police.wanted) + '<span class="dim">' + '★'.repeat(5 - g.police.wanted) + '</span>';
+    const r = g.rank;
+    this.el['rank-title'].textContent = `${r.title} (Lv ${r.level + 1})${r.nextTitle ? ` — ${Math.round(r.progress * 100)}% to ${r.nextTitle}` : ''}`;
+    this.el['rank-fill'].style.width = `${r.progress * 100}%`;
+    this.el.weapons.innerHTML = WEAPONS.map((w, i) => {
+      const ammo = w.ammo === Infinity ? '∞' : g.ammo[i + 1];
+      return `<div class="${g.weaponSlot === i + 1 ? 'sel' : ''}">${w.slot} ${w.name} (${ammo})</div>`;
+    }).join('');
+    const d = districtAt(p.x, p.z);
+    this.el.location.textContent = `${d.name} — ${streetAt(p.x, p.z)}`;
+    this.el['hp-fill'].style.width = `${p.health}%`;
+    this.el['ar-fill'].style.width = `${p.armour}%`;
+    if (this.bannerTimer > 0) {
+      this.bannerTimer -= dt;
+      if (this.bannerTimer <= 0) this.el.banner.classList.remove('show');
+    }
+    this.drawMinimap(g);
+    if (this.mapOpen) this.drawBigMap(g);
+  }
+
+  drawMinimap(g) {
+    const c = this.minimap.getContext('2d');
+    const S = 180, H = 480;
+    c.fillStyle = '#0c1a12';
+    c.fillRect(0, 0, S, S);
+    c.strokeStyle = '#4a5a4a';
+    c.lineWidth = 2;
+    for (const r of [-180, -120, -60, 0, 60, 120, 180]) {
+      const v = ((r + H / 2) / H) * S;
+      c.beginPath(); c.moveTo(v, 0); c.lineTo(v, S); c.stroke();
+      c.beginPath(); c.moveTo(0, v); c.lineTo(S, v); c.stroke();
+    }
+    const px = ((g.player.x + H / 2) / H) * S;
+    const pz = ((g.player.z + H / 2) / H) * S;
+    const mark = (x, z, color, r = 4) => {
+      c.fillStyle = color;
+      c.beginPath();
+      c.arc(((x + H / 2) / H) * S, ((z + H / 2) / H) * S, r, 0, Math.PI * 2);
+      c.fill();
+    };
+    const step = g.missions.currentStep;
+    if (step && (step.x !== undefined)) mark(step.x, step.z, '#f2c200', 5);
+    if (step && step.px !== undefined) mark(step.pickedUp ? step.dx : step.px, step.pickedUp ? step.dz : step.pz, '#2ec22e', 5);
+    mark(0, 120, '#7ec8ff', 3); // safehouse
+    for (const cr of g.police.cruisers) mark(cr.x, cr.z, '#ff4444', 3);
+    if (g.police.heli) mark(g.police.heli.x, g.police.heli.z, '#ff8844', 3);
+    // Player arrow.
+    c.save();
+    c.translate(px, pz);
+    c.rotate(-g.camYaw);
+    c.fillStyle = '#ffffff';
+    c.beginPath(); c.moveTo(0, -7); c.lineTo(5, 6); c.lineTo(-5, 6); c.closePath(); c.fill();
+    c.restore();
+  }
+
+  drawBigMap(g) {
+    const c = this.bigmap.getContext('2d');
+    const S = 520, H = 480;
+    c.fillStyle = '#101a14';
+    c.fillRect(0, 0, S, S);
+    // Districts.
+    const cols = { downtown: '#3a2a1a', beach: '#5a4a2a', market: '#4a2a1a', hills: '#2a3a4a', harbour: '#1a3a4a' };
+    for (const [key, d] of Object.entries({ downtown: { x0: -90, z0: -90, x1: 90, z1: 90 }, beach: { x0: -240, z0: 90, x1: 240, z1: 240 }, market: { x0: -240, z0: -90, x1: -90, z1: 90 }, hills: { x0: -90, z0: -240, x1: 240, z1: -90 }, harbour: { x0: 90, z0: -90, x1: 240, z1: 90 } })) {
+      c.fillStyle = cols[key];
+      c.fillRect(((d.x0 + H / 2) / H) * S, ((d.z0 + H / 2) / H) * S, ((d.x1 - d.x0) / H) * S, ((d.z1 - d.z0) / H) * S);
+    }
+    c.strokeStyle = '#6a7a6a';
+    c.lineWidth = 3;
+    for (const r of [-180, -120, -60, 0, 60, 120, 180]) {
+      const v = ((r + H / 2) / H) * S;
+      c.beginPath(); c.moveTo(v, 0); c.lineTo(v, S); c.stroke();
+      c.beginPath(); c.moveTo(0, v); c.lineTo(S, v); c.stroke();
+    }
+    const mark = (x, z, label, color) => {
+      const mx = ((x + H / 2) / H) * S, mz = ((z + H / 2) / H) * S;
+      c.fillStyle = color;
+      c.beginPath(); c.arc(mx, mz, 6, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#fff';
+      c.font = '13px sans-serif';
+      c.fillText(label, mx + 9, mz + 4);
+    };
+    mark(-60, 60, 'Garage', '#f2c200');
+    mark(60, -60, 'Hospital', '#ff8888');
+    mark(0, 120, 'Safehouse', '#7ec8ff');
+    mark(0, 0, 'Bank', '#ffd24a');
+    mark(180, 90, 'Marina', '#7ec8ff');
+    mark(120, -60, 'Police', '#ff4444');
+    mark(-120, 120, 'Hideout', '#b07eff');
+    const step = g.missions.currentStep;
+    if (step && step.x !== undefined) mark(step.x, step.z, 'Next mission', '#ffffff');
+    mark(g.player.x, g.player.z, 'You', '#ffffff');
+  }
+
+  showStart() { this.el['start-screen'].classList.remove('hidden'); }
+  hideStart() { this.el['start-screen'].classList.add('hidden'); }
+  showPause() { this.el['pause-menu'].classList.remove('hidden'); }
+  hidePause() { this.el['pause-menu'].classList.add('hidden'); this.mapOpen = false; }
+  showComplete() { this.el['complete-screen'].classList.remove('hidden'); }
+  showDead() { this.el['dead-screen'].classList.remove('hidden'); }
+  hideDead() { this.el['dead-screen'].classList.add('hidden'); }
 }

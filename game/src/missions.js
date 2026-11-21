@@ -1,280 +1,199 @@
-// Solmar 3D — the 12 story missions in 3 acts.
-// Written fresh in this session for the v5 rebuild (prose spec only).
-// Each mission is a small state machine (start, objectives, success,
-// fail) stored in this one module. Completing a mission pays money and
-// unlocks the next; a new act shows an act title.
+// The 12 story missions in 3 acts. Each mission is a small state machine
+// of steps — go somewhere, drive somewhere, kill a crew, run a taxi,
+// escape a chase — with a marker on the map and a timer where it fits.
 
 import * as THREE from 'three';
-import { MISSIONS, ACT_NAMES } from './config.js';
+import { MISSION_REWARD } from './config.js';
 
-export function createMissions(G) {
-  let current = null; // {def, stage, timer, data, marker}
-  let markerMesh = null;
+export const MISSIONS = [
+  { act: 1, name: 'New in Town', steps: [
+    { kind: 'goto', x: -60, z: 60, r: 5, text: 'Walk to Marlowe Motors and meet the contact' } ] },
+  { act: 1, name: 'Borrowed Wheels', steps: [
+    { kind: 'drive', x: -60, z: 60, r: 6, text: 'Steal any car and bring it to the garage' } ] },
+  { act: 1, name: 'The Drop', steps: [
+    { kind: 'goto', x: -120, z: 0, r: 4, text: 'Pick up the package at the market' },
+    { kind: 'goto', x: 60, z: 120, r: 5, seconds: 75, text: 'Deliver the package before the timer ends' } ] },
+  { act: 1, name: 'Breakers on the Boardwalk', steps: [
+    { kind: 'kill', n: 4, spawn: [[-40, 198], [-10, 204], [20, 198], [50, 204]], text: 'Fight off the rival crew on the boardwalk' } ] },
+  { act: 2, name: 'Taxi for Rosa', steps: [
+    { kind: 'taxi', px: 60, pz: 60, dx: -120, dz: -120, seconds: 90, text: 'Pick Rosa up, then drive her across town' } ] },
+  { act: 2, name: 'The Courier Run', steps: [
+    { kind: 'stops', spots: [[120, 60], [-60, -120], [0, 180]], seconds: 120, text: 'Three delivery stops, any order, against the clock' } ] },
+  { act: 2, name: 'Harbour Lights', steps: [
+    { kind: 'enter', model: 'Strider', x: 150, z: 30, text: 'Steal the gold Strider at the harbour' },
+    { kind: 'drive', x: -120, z: 120, r: 6, text: 'Bring it to the hideout without wrecking it' } ] },
+  { act: 2, name: 'The Solmar Score', steps: [
+    { kind: 'goto', x: 0, z: 0, r: 5, text: 'Hold up the bank' },
+    { kind: 'escape', x: -120, z: 120, wanted: 4, text: 'Escape the 4-star chase — reach the hideout' } ] },
+  { act: 3, name: 'Night Shift', steps: [
+    { kind: 'goto', x: -180, z: -120, r: 5, text: 'Pick up the shipment at the north depot' },
+    { kind: 'drive', x: 180, z: 120, r: 6, seconds: 120, text: 'Deliver across the city before dawn — avoid the police' } ] },
+  { act: 3, name: "The Rival's Offer", steps: [
+    { kind: 'goto', x: 180, z: 90, r: 6, text: 'Meet Marco Vane\u2019s lieutenant at the marina' },
+    { kind: 'kill', n: 5, spawn: [[170, 80], [190, 100], [175, 110], [185, 75], [165, 95]], text: 'Refuse his price — fight your way out' } ] },
+  { act: 3, name: 'The Docks', steps: [
+    { kind: 'kill', n: 6, spawn: [[110, 200], [130, 205], [100, 215], [140, 210], [120, 195], [135, 220]], text: 'Fight Marco Vane\u2019s crew on the docks' },
+    { kind: 'hold', seconds: 20, text: 'Hold the pier until the boat leaves' } ] },
+  { act: 3, name: 'King of Solmar', steps: [
+    { kind: 'escape', x: -120, z: 120, wanted: 5, text: 'Escape the 5-star chase — reach the hideout' } ] },
+];
 
-  function marker(x, z, color) {
-    clearMarker();
-    const mat = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0.8, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
-    markerMesh = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 7, 12, 1, true), mat);
-    markerMesh.position.set(x, 3.5, z);
-    G.scene.add(markerMesh);
-    G.hud.setMarker(x, z, color);
+const ACT_TITLES = { 1: 'Act I — New in Town', 2: 'Act II — Rising', 3: 'Act III — King of Solmar' };
+
+export class MissionRunner {
+  constructor(scene, save) {
+    this.scene = scene;
+    this.index = save.missionsDone || 0;
+    this.step = 0;
+    this.timer = 0;
+    this.kills = 0;
+    this.stopsLeft = [];
+    this.marker = null;
+    this.active = false;
+    this.done = this.index >= MISSIONS.length;
+    this.onStart = null; // (mission) => void
+    this.onComplete = null; // (mission, reward) => void
+    this.onFail = null; // (reason) => void
   }
 
-  function clearMarker() {
-    if (markerMesh) {
-      G.scene.remove(markerMesh);
-      markerMesh = null;
-    }
-    G.hud.setMarker(null, null);
+  get mission() { return MISSIONS[this.index] || null; }
+  get actTitle() { return this.mission ? ACT_TITLES[this.mission.act] : ''; }
+
+  setMarker(x, z, color = 0xf2c200) {
+    this.clearMarker();
+    const m = new THREE.Mesh(
+      new THREE.CylinderGeometry(2.2, 2.2, 8, 14, 1, true),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+    );
+    m.position.set(x, 4, z);
+    this.scene.add(m);
+    this.marker = m;
+    return m;
   }
 
-  function objective(text, hint) {
-    G.hud.setObjective(current ? current.def.name : '', text, hint || '');
+  clearMarker() {
+    if (this.marker) { this.scene.remove(this.marker); this.marker = null; }
   }
 
-  function playerPos() {
-    const p = G.player;
-    return p.inCar ? { x: p.inCar.x, z: p.inCar.z } : { x: p.x, z: p.z };
+  start(ctx) {
+    if (this.done) return;
+    this.active = true;
+    this.step = 0;
+    this.beginStep(ctx);
+    if (this.onStart) this.onStart(this.mission);
   }
 
-  function at(x, z, r) {
-    const pos = playerPos();
-    return Math.hypot(pos.x - x, pos.z - z) < r;
+  beginStep(ctx) {
+    const s = this.mission.steps[this.step];
+    this.timer = s.seconds || 0;
+    this.kills = 0;
+    this.stopsLeft = s.spots ? [...s.spots] : [];
+    if (s.kind === 'goto' || s.kind === 'drive') this.setMarker(s.x, s.z);
+    else if (s.kind === 'escape') { this.setMarker(s.x, s.z); ctx.police.setWanted(s.wanted); }
+    else if (s.kind === 'enter') this.setMarker(s.x, s.z, 0xf2c200);
+    else if (s.kind === 'taxi') this.setMarker(s.px, s.pz, 0x2ec22e);
+    else if (s.kind === 'stops' && this.stopsLeft.length) this.setMarker(this.stopsLeft[0][0], this.stopsLeft[0][1], 0x2ec22e);
+    else if (s.kind === 'kill') {
+      this.clearMarker();
+      for (const [x, z] of s.spawn) ctx.combat.spawnEnemy(x, z, 60);
+    } else if (s.kind === 'hold') this.clearMarker();
   }
 
-  function start(id) {
-    const def = MISSIONS.find((m) => m.id === id);
-    if (!def) return;
-    current = { def, stage: 0, timer: def.time, data: {}, started: G.time };
-    if (def.act > 1 && (id === 5 || id === 9)) {
-      G.hud.actTitle(ACT_NAMES[def.act]);
-    }
-    G.hud.banner(def.name, ACT_NAMES[def.act]);
-    G.hud.setMission(def.name, def.act, 0);
-    // Per-mission setup.
-    if (id === 9) G.setHour(21.2); // Night Shift starts at night.
-    if (id === 12) G.police.setWanted(5); // the finale opens on a 5-star chase
-    setupStage();
+  advance(ctx) {
+    this.step++;
+    if (this.step >= this.mission.steps.length) this.complete(ctx);
+    else this.beginStep(ctx);
   }
 
-  function setupStage() {
-    if (!current) return;
-    const id = current.def.id;
-    const s = current.stage;
-    const P = G.world.places;
-    if (id === 1) { marker(P.garage.x, P.garage.z, 0xffd24a); objective('Walk to Marlowe Motors and meet the contact'); }
-    else if (id === 2) { marker(P.garage.x, P.garage.z, 0xffd24a); objective('Steal any car and bring it to the garage'); }
-    else if (id === 3) {
-      if (s === 0) { marker(P.garage.x, P.garage.z, 0xffd24a); objective('Pick up the package at Marlowe Motors'); }
-      else { marker(P.safehouse.x, P.safehouse.z, 0x66ff66); objective('Deliver the package to the safehouse — before the clock runs out'); }
-    }
-    else if (id === 4) { marker(P.boardwalk.x, P.boardwalk.z, 0xff4444); objective('Fight off the Breakers on the boardwalk'); }
-    else if (id === 5) {
-      if (s === 0) { marker(P.plaza.x, P.plaza.z, 0xffd24a); objective('Pick Rosa up at the Market Plaza (bring a car)'); }
-      else { marker(P.hospital.x, P.hospital.z, 0x66ff66); objective('Drive Rosa to St. Coral Hospital — fast, for the tip'); }
-    }
-    else if (id === 6) {
-      if (!current.data.stops) {
-        current.data.stops = [
-          { x: P.bank.x, z: P.bank.z, done: false },
-          { x: P.marina.x, z: P.marina.z, done: false },
-          { x: P.hospital.x, z: P.hospital.z, done: false },
-        ];
-      }
-      const stops = current.data.stops;
-      const remaining = stops.filter((st) => !st.done);
-      if (remaining.length === 0) return;
-      const next = remaining[0];
-      marker(next.x, next.z, 0x66ff66);
-      objective(`Courier run — ${remaining.length} stop${remaining.length > 1 ? 's' : ''} left (any order)`);
-    }
-    else if (id === 7) {
-      if (s === 0) { marker(176, 30, 0xffd24a); objective('Steal the gold Strider parked at the harbour'); }
-      else { marker(P.hideout.x, P.hideout.z, 0x66ff66); objective('Bring the Strider to the hideout — do not wreck it'); }
-    }
-    else if (id === 8) {
-      if (s === 0) { marker(P.bank.x, P.bank.z, 0xffd24a); objective('Go to Solmar Bank'); }
-      else if (s === 1) { marker(P.bank.x, P.bank.z, 0xff4444); objective('Hold up the bank — stay at the marker'); }
-      else { marker(P.hideout.x, P.hideout.z, 0x66ff66); objective('Escape the 4-star chase — reach the hideout'); }
-    }
-    else if (id === 9) {
-      if (s === 0) { marker(P.docks.x, P.docks.z, 0xffd24a); objective('Pick up the shipment at the docks (night)'); }
-      else { marker(P.hideout.x, P.hideout.z, 0x66ff66); objective('Deliver before dawn — stay out of the cops\' way'); }
-    }
-    else if (id === 10) {
-      if (s === 0) { marker(P.marina.x, P.marina.z, 0xffd24a); objective('Meet Marco Vane\'s lieutenant at the marina'); }
-      else { marker(P.marina.x, P.marina.z, 0xff4444); objective('Refuse his price — fight your way out'); }
-    }
-    else if (id === 11) {
-      if (s === 0) { marker(P.docks.x, P.docks.z, 0xff4444); objective('Fight Marco Vane\'s crew on the docks'); }
-      else { marker(-34, 230, 0x66ff66); objective('Hold the pier until the boat leaves'); }
-    }
-    else if (id === 12) { marker(P.hideout.x, P.hideout.z, 0x66ff66); objective('Escape the 5-star chase — reach the hideout'); }
+  complete(ctx) {
+    const reward = MISSION_REWARD[this.index] || 100;
+    this.active = false;
+    this.clearMarker();
+    this.index++;
+    this.done = this.index >= MISSIONS.length;
+    if (this.onComplete) this.onComplete(this.mission, reward);
+    if (!this.done) this.start(ctx);
   }
 
-  function spawnCrew(spots, health) {
-    const list = [];
-    for (const [x, z] of spots) list.push(G.combat.spawnEnemy(x, z, health || 60));
-    return list;
+  fail(reason, ctx) {
+    this.active = false;
+    this.clearMarker();
+    if (this.onFail) this.onFail(reason);
+    this.active = true;
+    this.step = 0;
+    this.beginStep(ctx);
   }
 
-  function complete() {
-    const def = current.def;
-    clearMarker();
-    G.player.money += def.money;
-    G.rank.add(def.rank);
-    G.save.missionsDone.push(def.id);
-    G.audio.mission();
-    G.hud.banner('MISSION COMPLETE', `${def.name} — +$${def.money}`);
-    G.hud.setMission('', 0, 0);
-    G.hud.setObjective('', '');
-    current = null;
-    const next = MISSIONS.find((m) => m.id === def.id + 1);
-    if (next) {
-      start(next.id);
-    } else {
-      // The finale is done: King of Solmar.
-      G.state = 'complete';
-      G.hud.showComplete();
-    }
-  }
-
-  function fail(reason) {
-    const def = current.def;
-    clearMarker();
-    G.hud.banner('MISSION FAILED', reason);
-    // Enemies from the failed mission go away.
-    for (const e of [...G.combat.enemies]) G.combat.removeEnemy(e);
-    current = null;
-    setTimeout(() => start(def.id), 1200);
-  }
-
-  function update(dt) {
-    if (!current) return;
-    const id = current.def.id;
-    const s = current.stage;
-    const P = G.world.places;
-    if (current.def.time > 0) {
-      current.timer -= dt;
-      G.hud.setTimer(Math.max(0, current.timer));
-      if (current.timer <= 0) {
-        fail('Out of time');
-        return;
+  update(dt, ctx) {
+    if (!this.active || this.done) return;
+    const s = this.mission.steps[this.step];
+    if (this.marker) this.marker.rotation.y += dt;
+    if (s.seconds) {
+      this.timer -= dt;
+      if (this.timer <= 0) {
+        if (s.kind === 'hold') { this.advance(ctx); return; }
+        this.fail('Out of time', ctx); return;
       }
     }
-    // Stage logic per mission.
-    if (id === 1) {
-      if (at(P.garage.x, P.garage.z, 6)) complete();
-    } else if (id === 2) {
-      if (s === 0 && G.player.inCar) { current.stage = 1; setupStage(); }
-      else if (s === 1 && G.player.inCar && at(P.garage.x, P.garage.z, 8)) complete();
-    } else if (id === 3) {
-      if (s === 0 && at(P.garage.x, P.garage.z, 5)) { current.stage = 1; setupStage(); }
-      else if (s === 1 && at(P.safehouse.x, P.safehouse.z, 6)) complete();
-    } else if (id === 4) {
-      if (s === 0) {
-        current.data.crew = spawnCrew([[30, 166], [44, 172], [56, 166], [36, 178]], 50);
-        current.stage = 1;
-      } else if (current.data.crew.every((e) => e.dead || !G.combat.enemies.includes(e))) {
-        complete();
-      }
-    } else if (id === 5) {
-      if (s === 0 && G.player.inCar && at(P.plaza.x, P.plaza.z, 6)) { current.stage = 1; setupStage(); }
-      else if (s === 1 && G.player.inCar && at(P.hospital.x, P.hospital.z, 8)) {
-        if (current.timer > 40) { G.player.money += 100; G.hud.banner('SPEED TIP', '+$100 for a fast ride'); }
-        complete();
-      }
-    } else if (id === 6) {
-      if (!current.data.stops) {
-        current.data.stops = [
-          { x: P.bank.x, z: P.bank.z, done: false },
-          { x: P.marina.x, z: P.marina.z, done: false },
-          { x: P.hospital.x, z: P.hospital.z, done: false },
-        ];
-        setupStage();
-      }
-      for (const st of current.data.stops) {
-        if (!st.done && at(st.x, st.z, 7)) {
-          st.done = true;
-          G.audio.chime();
-          setupStage();
+    const near = (x, z, r) => Math.hypot(ctx.player.x - x, ctx.player.z - z) < r;
+    switch (s.kind) {
+      case 'goto':
+        if (near(s.x, s.z, s.r)) this.advance(ctx);
+        break;
+      case 'drive':
+        if (ctx.inCar && near(s.x, s.z, s.r)) {
+          if (this.mission.name === 'Harbour Lights' && ctx.car && ctx.car.wrecked) { this.fail('The Strider is wrecked', ctx); return; }
+          this.advance(ctx);
         }
+        break;
+      case 'enter':
+        if (ctx.inCar && ctx.car && ctx.car.model.name === s.model) this.advance(ctx);
+        break;
+      case 'kill':
+        if (this.kills >= s.n) this.advance(ctx);
+        break;
+      case 'taxi': {
+        if (!s.pickedUp) {
+          if (near(s.px, s.pz, 4)) { s.pickedUp = true; this.setMarker(s.dx, s.dz, 0x2ec22e); }
+        } else if (ctx.inCar && near(s.dx, s.dz, 5)) this.advance(ctx);
+        break;
       }
-      if (current.data.stops.every((st) => st.done)) complete();
-    } else if (id === 7) {
-      const strider = G.vehicles.list.find((c) => c.missionCar === 'strider');
-      if (s === 0 && G.player.inCar === strider) { current.stage = 1; setupStage(); }
-      else if (s === 1) {
-        if (strider.wrecked) { fail('You wrecked the Strider'); return; }
-        if (at(P.hideout.x, P.hideout.z, 8)) complete();
-      }
-    } else if (id === 8) {
-      if (s === 0 && at(P.bank.x, P.bank.z, 6)) {
-        current.stage = 1;
-        current.data.holdT = 0;
-        setupStage();
-      } else if (s === 1) {
-        if (at(P.bank.x, P.bank.z, 6)) {
-          current.data.holdT += dt;
-          G.hud.setObjective('The Solmar Score', `Hold up in progress — ${Math.ceil(5 - current.data.holdT)}s`);
-          if (current.data.holdT >= 5) {
-            G.player.money += 800;
-            G.police.setWanted(4);
-            current.stage = 2;
-            setupStage();
+      case 'stops': {
+        for (let i = this.stopsLeft.length - 1; i >= 0; i--) {
+          const [x, z] = this.stopsLeft[i];
+          if (near(x, z, 5)) {
+            this.stopsLeft.splice(i, 1);
+            if (this.stopsLeft.length === 0) { this.advance(ctx); return; }
+            this.setMarker(this.stopsLeft[0][0], this.stopsLeft[0][1], 0x2ec22e);
+            break;
           }
-        } else {
-          current.data.holdT = 0;
         }
-      } else if (s === 2 && at(P.hideout.x, P.hideout.z, 8)) {
-        complete();
+        break;
       }
-    } else if (id === 9) {
-      if (s === 0 && at(P.docks.x, P.docks.z, 6)) { current.stage = 1; setupStage(); }
-      else if (s === 1) {
-        if (G.police.wanted >= 4) { fail('The police caught the shipment'); return; }
-        if (at(P.hideout.x, P.hideout.z, 8)) complete();
-      }
-    } else if (id === 10) {
-      if (s === 0 && at(P.marina.x, P.marina.z, 6)) {
-        current.data.crew = spawnCrew([[168, 34], [178, 44], [166, 48], [180, 36]], 60);
-        current.stage = 1;
-        setupStage();
-      } else if (s === 1 && current.data.crew.every((e) => e.dead || !G.combat.enemies.includes(e))) {
-        complete();
-      }
-    } else if (id === 11) {
-      if (s === 0) {
-        current.data.crew = spawnCrew([[180, 84], [190, 92], [176, 96], [194, 86], [184, 96], [188, 82]], 60);
-        current.stage = 1;
-      } else if (s === 1 && current.data.crew.every((e) => e.dead || !G.combat.enemies.includes(e))) {
-        current.stage = 2;
-        current.data.holdT = 0;
-        current.data.crew2 = spawnCrew([[-28, 220], [-40, 226], [-30, 236]], 50);
-        setupStage();
-      } else if (s === 2) {
-        if (at(-34, 230, 10)) {
-          current.data.holdT += dt;
-          const left = Math.ceil(30 - current.data.holdT);
-          G.hud.setObjective('The Docks', `Hold the pier — the boat leaves in ${left}s`);
-          if (current.data.holdT >= 30) complete();
-        } else {
-          G.hud.setObjective('The Docks', 'Get back to the pier marker and hold it');
-        }
-      }
-    } else if (id === 12) {
-      if (at(P.hideout.x, P.hideout.z, 8)) complete();
+      case 'escape':
+        if (ctx.police.wanted >= s.wanted) s.chaseOn = true;
+        if (s.chaseOn && ctx.police.wanted === 0 && near(s.x, s.z, 6)) this.advance(ctx);
+        break;
+      case 'hold':
+        if (this.timer <= 0) this.advance(ctx);
+        break;
     }
   }
 
-  function startFirst() {
-    const done = G.save.missionsDone || [];
-    const nextId = MISSIONS.find((m) => !done.includes(m.id));
-    if (nextId) start(nextId.id);
+  // Called by the game when an enemy dies during a kill step.
+  noteKill() { this.kills++; }
+
+  get currentStep() {
+    return this.active && !this.done ? this.mission.steps[this.step] : null;
   }
 
-  return {
-    get current() { return current; },
-    start, startFirst, update, complete, fail,
-  };
+  get objective() {
+    const s = this.currentStep;
+    return s ? s.text : (this.done ? 'You are the King of Solmar.' : '');
+  }
+
+  get timerLeft() {
+    const s = this.currentStep;
+    return s && s.seconds ? Math.max(0, this.timer) : 0;
+  }
 }

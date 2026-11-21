@@ -1,49 +1,33 @@
-// Solmar 3D — saving and loading (localStorage).
-// Written fresh in this session for the v5 rebuild (prose spec only).
-// Saves money, missions completed, kills, fares, packages, jumps and
-// rank. Loading an older save format (v1, without rank points or the
-// jumps list) still works: missing fields fall back to defaults.
+// Save to localStorage: money, missions, kills, fares, packages, jumps,
+// rank. Loading an older save format (v1, without armour) still works.
 
-const KEY = 'solmar3d-save-v2';
-const OLD_KEY = 'solmar-save-v1';
+import { SAVE_KEY } from './config.js';
 
 export function defaultSave() {
   return {
-    version: 2,
-    money: 150,
-    missionsDone: [],
-    kills: 0,
-    fares: 0,
-    packages: [],
-    jumps: [],
-    rankPoints: 0,
+    version: 2, money: 150, missionsDone: 0, kills: 0, fares: 0,
+    packages: [], jumps: [], rankPoints: 0, armour: 0, health: 100,
   };
 }
 
 export function loadSave() {
   try {
-    const raw = localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY);
+    const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return defaultSave();
-    const data = JSON.parse(raw);
+    const s = JSON.parse(raw);
     const d = defaultSave();
-    if (typeof data.money === 'number') d.money = data.money;
-    if (Array.isArray(data.missionsDone)) d.missionsDone = data.missionsDone;
-    if (typeof data.kills === 'number') d.kills = data.kills;
-    if (typeof data.fares === 'number') d.fares = data.fares;
-    if (Array.isArray(data.packages)) d.packages = data.packages;
-    if (Array.isArray(data.jumps)) d.jumps = data.jumps;
-    if (typeof data.rankPoints === 'number') d.rankPoints = data.rankPoints;
-    return d;
-  } catch (err) {
+    // v1 saves had no armour field and stored packages as a count.
+    if (typeof s.packages === 'number') s.packages = [];
+    return { ...d, ...s, version: 2 };
+  } catch {
     return defaultSave();
   }
 }
 
-export function storeSave(data) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify({ ...data, version: 2 }));
-    return true;
-  } catch (err) {
-    return false;
-  }
+export function storeSave(save) {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* private mode */ }
+}
+
+export function clearSave() {
+  try { localStorage.removeItem(SAVE_KEY); } catch { /* ignore */ }
 }
